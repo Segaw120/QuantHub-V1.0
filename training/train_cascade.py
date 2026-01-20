@@ -434,6 +434,8 @@ class CascadeTrainer:
         }, output_path / "l1_scope.pt")
         
         # Save L2
+        l2_in_dim = self.l3.backbone.net[0].in_features if self.l3 else 0
+        
         if self.l2_backend == "xgb":
             json_path = output_path / "l2_aim.json"
             self.l2_model.save_model(str(json_path))
@@ -447,7 +449,7 @@ class CascadeTrainer:
             torch.save({
                 'model_type': 'mlp',
                 'model_state_dict': self.l2_model.state_dict(),
-                'config': {'in_dim': X_l2_tr.shape[1], 'hidden': [128, 64]},
+                'config': {'in_dim': l2_in_dim, 'hidden': [128, 64]},
                 'scaler_tab': self.scaler_tab,
                 'feature_names': self.tab_feature_names
             }, output_path / "l2_aim.pt")
@@ -455,7 +457,7 @@ class CascadeTrainer:
         # Save L3
         torch.save({
             'model_state_dict': self.l3.state_dict(),
-            'config': {'in_dim': X_l2_tr.shape[1], 'hidden': (128, 64)},
+            'config': {'in_dim': l2_in_dim, 'hidden': (128, 64)},
             'temp_scaler_state': self.l3_temp.state_dict()
         }, output_path / "l3_shoot.pt")
         
