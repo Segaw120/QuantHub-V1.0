@@ -7,9 +7,16 @@ Streamlit interface for training, simulation, deployment, and monitoring.
 import streamlit as st
 import pandas as pd
 import numpy as np
+import sys
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+
+# Add project root to sys.path to resolve 'app' module
+project_root = str(Path(__file__).parent.parent)
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
