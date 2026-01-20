@@ -1,0 +1,49 @@
+# QuantHub V1.0
+
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Data
+data/*.csv
+data/*.parquet
+!data/.gitkeep
+
+# Models
+models/*.pt
+models/*.json
+models/*.pkl
+!models/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log
+logs/
+
+# Distribution
+dist/
+build/
+*.egg-info/
