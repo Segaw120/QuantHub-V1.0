@@ -15,10 +15,10 @@ TRAINING_DEFAULTS = {
     'feat_windows': (5, 10, 20), # Feature engineering windows
 }
 
-# Labeling parameters from train_raybot.py (lines 192-199)
+# Labeling parameters from train_raybot.py (line 796)
 LABELING_DEFAULTS = {
     'lookback': 64,             # Minimum bars before candidate
-    'k_tp': 3.0,                # Take profit multiplier (ATR)
+    'k_tp': 2.0,                # Take profit multiplier (ATR) - CRITICAL: 2.0, not 3.0!
     'k_sl': 1.0,                # Stop loss multiplier (ATR)
     'atr_window': 14,           # ATR calculation window
     'max_bars': 60,             # Maximum holding period
@@ -48,31 +48,48 @@ LEVEL_GATING = {
     }
 }
 
-# Risk profiles from backtesting CSV
-# Based on 2026-01-16T04-33_CascadeFamily Training & Backtesting Stats.csv
-RISK_PROFILES = {
+# Risk profile RANGES from train_raybot.py (lines 718-723)
+# These are NOT hardcoded - they're ranges that get averaged for backtesting
+RISK_PROFILE_RANGES = {
     'L1': {
-        'risk_pct': 0.03,           # 3% per trade
-        'risk_reward': 2.25,        # TP/SL ratio
-        'win_rate_target': 0.8875,  # Historical: 88.75%
+        'sl_range': (0.02, 0.04),   # 2-4% stop loss
+        'rr_range': (2.0, 2.5),     # 2.0-2.5 risk:reward
         'description': 'Aggressive - High win rate, bull markets',
         'use_case': 'Strong trending markets, low volatility'
     },
     'L2': {
-        'risk_pct': 0.02,           # 2% per trade
-        'risk_reward': 2.75,        # TP/SL ratio
-        'win_rate_target': 0.7848,  # Historical: 78.48%
+        'sl_range': (0.01, 0.03),   # 1-3% stop loss
+        'rr_range': (2.0, 3.5),     # 2.0-3.5 risk:reward
         'description': 'Balanced - All-weather trading',
         'use_case': 'Mixed market conditions, moderate volatility'
     },
     'L3': {
-        'risk_pct': 0.0125,         # 1.25% per trade
-        'risk_reward': 4.0,         # TP/SL ratio
-        'win_rate_target': 0.5424,  # Historical: 54.24%
+        'sl_range': (0.005, 0.02),  # 0.5-2% stop loss
+        'rr_range': (3.0, 5.0),     # 3.0-5.0 risk:reward
         'description': 'Conservative - High R:R, volatile markets',
         'use_case': 'High volatility, bear markets, uncertain conditions'
     }
 }
+
+# Calculate default risk profiles (averages of ranges)
+# These match the CSV results from breadth backtesting
+RISK_PROFILES = {}
+for level, ranges in RISK_PROFILE_RANGES.items():
+    sl_pct = sum(ranges['sl_range']) / 2.0
+    rr = sum(ranges['rr_range']) / 2.0
+    RISK_PROFILES[level] = {
+        'sl_pct': sl_pct,           # Percentage-based stop loss
+        'rr': rr,                   # Risk:reward ratio
+        'tp_pct': sl_pct * rr,      # Take profit = SL * RR
+        'description': ranges['description'],
+        'use_case': ranges['use_case'],
+        # Expected win rates from CSV backtesting
+        'win_rate_target': {
+            'L1': 0.8875,
+            'L2': 0.7848,
+            'L3': 0.5424
+        }[level]
+    }
 
 # Model architecture defaults
 MODEL_ARCHITECTURE = {
