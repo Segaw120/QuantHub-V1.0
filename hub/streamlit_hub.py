@@ -101,7 +101,7 @@ elif page == "🎯 Training":
     
     # Import config
     try:
-        from training.config import TRAINING_DEFAULTS, RISK_PROFILES, LABELING_DEFAULTS
+        from training.config import TRAINING_DEFAULTS, RISK_PROFILES, LABELING_DEFAULTS, LEVEL_GATING
     except ImportError:
         st.error("Training config not found. Please ensure training/config.py exists.")
         st.stop()
