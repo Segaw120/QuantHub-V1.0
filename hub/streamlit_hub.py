@@ -155,6 +155,12 @@ elif page == "🎯 Training":
     with tab2:
         st.subheader("Training Configuration")
         
+        # Import risk profile ranges
+        try:
+            from training.config import RISK_PROFILE_RANGES
+        except ImportError:
+            RISK_PROFILE_RANGES = {}
+        
         # Hardcoded parameters (read-only)
         st.markdown("### 📋 Training Parameters (from train_raybot.py)")
         st.info("These parameters are hardcoded for reproducibility and match the original training system.")
@@ -171,54 +177,62 @@ elif page == "🎯 Training":
             })
         
         with col2:
-            st.markdown("**Labeling Parameters**")
+            st.markdown("**Labeling Parameters (SAME for all levels)**")
             st.json({
+                "k_tp": LABELING_DEFAULTS['k_tp'],        # 2.0 ATR
+                "k_sl": LABELING_DEFAULTS['k_sl'],        # 1.0 ATR
                 "lookback": LABELING_DEFAULTS['lookback'],
                 "atr_window": LABELING_DEFAULTS['atr_window'],
-                "max_bars": LABELING_DEFAULTS['max_bars'],
-                "direction": LABELING_DEFAULTS['direction']
+                "max_bars": LABELING_DEFAULTS['max_bars']
             })
         
         st.markdown("---")
         
-        # Risk profiles (user-adjustable)
-        st.markdown("### 🎚️ Risk Profiles (Adjustable)")
-        st.markdown("Based on backtesting results from CSV. Adjust to customize each model's risk tolerance.")
+        # Training flow explanation
+        st.markdown("### 🔄 Training Flow")
+        st.markdown("""
+        1. **Label Generation**: All models trained on **same labels** (k_tp=2.0, k_sl=1.0)
+        2. **Model Training**: L1, L2, L3 trained independently
+        3. **Backtesting**: Each level uses different SL/TP ranges for position sizing
+        
+        > **Key Insight**: Labels are identical, but backtesting uses level-specific risk profiles.
+        """)
+        
+        st.markdown("---")
+        
+        # Risk profile ranges (user-adjustable)
+        st.markdown("### 🎚️ Risk Profile Ranges (for Backtesting)")
+        st.markdown("These ranges are used for backtesting and position sizing, NOT for labeling.")
         
         # Store adjusted profiles in session state
-        if 'risk_profiles' not in st.session_state:
-            st.session_state['risk_profiles'] = RISK_PROFILES.copy()
+        if 'risk_profile_ranges' not in st.session_state:
+            st.session_state['risk_profile_ranges'] = RISK_PROFILE_RANGES.copy() if RISK_PROFILE_RANGES else {}
         
         for level in ['L1', 'L2', 'L3']:
-            with st.expander(f"**{level}** - {RISK_PROFILES[level]['description']}", expanded=False):
+            if level not in RISK_PROFILE_RANGES:
+                continue
+                
+            ranges = RISK_PROFILE_RANGES[level]
+            with st.expander(f"**{level}** - {ranges['description']}", expanded=False):
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    risk_pct = st.slider(
-                        f"{level} Risk %",
-                        min_value=0.5,
-                        max_value=5.0,
-                        value=RISK_PROFILES[level]['risk_pct'] * 100,
-                        step=0.25,
-                        key=f"{level}_risk"
-                    ) / 100
-                    st.session_state['risk_profiles'][level]['risk_pct'] = risk_pct
+                    st.markdown("**Stop Loss Range**")
+                    sl_min, sl_max = ranges['sl_range']
+                    st.write(f"{sl_min*100:.2f}% - {sl_max*100:.2f}%")
+                    st.metric("Default (Avg)", f"{(sl_min + sl_max)/2*100:.2f}%")
                 
                 with col2:
-                    risk_reward = st.slider(
-                        f"{level} R:R Ratio",
-                        min_value=1.0,
-                        max_value=5.0,
-                        value=RISK_PROFILES[level]['risk_reward'],
-                        step=0.25,
-                        key=f"{level}_rr"
-                    )
-                    st.session_state['risk_profiles'][level]['risk_reward'] = risk_reward
+                    st.markdown("**Risk:Reward Range**")
+                    rr_min, rr_max = ranges['rr_range']
+                    st.write(f"{rr_min:.2f} - {rr_max:.2f}")
+                    st.metric("Default (Avg)", f"{(rr_min + rr_max)/2:.2f}")
                 
                 with col3:
-                    st.metric("Historical Win Rate", f"{RISK_PROFILES[level]['win_rate_target']:.2%}")
+                    st.markdown("**Expected Win Rate**")
+                    st.metric("Historical", f"{RISK_PROFILES[level]['win_rate_target']:.2%}")
                 
-                st.caption(f"**Use Case**: {RISK_PROFILES[level]['use_case']}")
+                st.caption(f"**Use Case**: {ranges['use_case']}")
     
     with tab3:
         st.subheader("Train Independent Models")
