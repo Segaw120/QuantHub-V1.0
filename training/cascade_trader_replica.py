@@ -634,14 +634,22 @@ def summarize_trades(trades: pd.DataFrame) -> pd.DataFrame:
     }])
 
 def run_breadth_levels(preds: pd.DataFrame, cands: pd.DataFrame, bars: pd.DataFrame, level_configs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Apply exclusive level ranges to preds -> cands and simulate trades per level."""
+    from training.config import RISK_PROFILES
     out = {"detailed": {}, "summary": []}
     df = cands.copy().reset_index(drop=True)
     preds_indexed = preds.set_index('t')
     df['signal'] = (preds_indexed.reindex(df.index)['p3'].fillna(0.0) * 10).values
     for name, conf in level_configs.items():
-        buy_min, buy_max = conf['buy_range']
-        sl_pct, rr = conf['sl_pct'], conf['rr']
+        buy_min = conf.get('buy_min', 5.5)
+        buy_max = conf.get('buy_max', 9.9)
+        
+        # Pull SL and RR from RISK_PROFILES
+        risk = RISK_PROFILES.get(name, {})
+        sl_pct = risk.get('sl_pct', 0.02)
+        rr = risk.get('rr', 2.0)
         tp_pct = rr * sl_pct
+        
         sel = df[(df['signal'] >= buy_min) & (df['signal'] <= buy_max)].copy()
         if sel.empty:
             out['detailed'][name] = pd.DataFrame()
