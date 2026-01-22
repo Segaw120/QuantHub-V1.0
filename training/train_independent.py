@@ -154,6 +154,14 @@ class IndependentModelTrainer:
             "use_xgb": use_xgb
         })
         
+        # Initialize metadata for this level
+        self.metadata[level] = {
+            "level": level,
+            "risk_pct": risk_profile['risk_pct'],
+            "risk_reward": risk_profile['risk_reward'],
+            "status": "training"
+        }
+        
         # Generate labels with level-specific risk profile
         logger.info(f"Generating labels for {level}...")
         labeler = TripleBarrierLabeler(
@@ -167,11 +175,17 @@ class IndependentModelTrainer:
         
         if events.empty:
             logger.warning(f"No events generated for {level}")
+            self.metadata[level]["status"] = "failed"
+            self.metadata[level]["error"] = "No events generated"
             return
         
         win_rate = events['label'].mean()
         logger.info(f"{level} Win Rate: {win_rate:.2%} (Target: {risk_profile['win_rate_target']:.2%})")
         mlflow.log_metric("label_win_rate", win_rate)
+        
+        self.metadata[level]["win_rate"] = float(win_rate)
+        self.metadata[level]["target_win_rate"] = risk_profile['win_rate_target']
+        self.metadata[level]["num_events"] = len(events)
         
         # Feature engineering
         logger.info("Computing features...")
@@ -198,16 +212,21 @@ class IndependentModelTrainer:
         y_tr, y_va = y[tr_idx], y[va_idx]
         
         # Train based on level
+        results = {}
         if level == 'L1':
-            self._train_l1(df, eng, idx_tr, idx_va, y_tr, y_va, epochs)
+            results = self._train_l1(df, eng, idx_tr, idx_va, y_tr, y_va, epochs)
         elif level == 'L2':
-            self._train_l2(df, eng, idx_tr, idx_va, y_tr, y_va, epochs, use_xgb)
+            results = self._train_l2(df, eng, idx_tr, idx_va, y_tr, y_va, epochs, use_xgb)
         elif level == 'L3':
-            self._train_l3(df, eng, idx_tr, idx_va, y_tr, y_va, epochs)
+            results = self._train_l3(df, eng, idx_tr, idx_va, y_tr, y_va, epochs)
         
         fit_time = time.time() - t0
         mlflow.log_metric("fit_time_sec", fit_time)
         logger.info(f"{level} training complete in {fit_time:.2f}s")
+        
+        self.metadata[level].update(results)
+        self.metadata[level]["fit_time_sec"] = round(fit_time, 2)
+        self.metadata[level]["status"] = "completed"
     
     def _train_l1(self, df, eng, idx_tr, idx_va, y_tr, y_va, epochs):
         """Train L1 CNN model"""
@@ -270,6 +289,11 @@ class IndependentModelTrainer:
         self.models['L1'] = model
         self.scalers_seq['L1'] = scaler_seq
         self.temp_scalers['L1'] = temp_scaler
+        
+        return {
+            "best_val_loss": float(hist["best_val_loss"]),
+            "history": hist.get("history", {})
+        }
     
     def _train_l2(self, df, eng, idx_tr, idx_va, y_tr, y_va, epochs, use_xgb):
         """Train L2 validator model"""
@@ -316,6 +340,11 @@ class IndependentModelTrainer:
         # Store
         self.models['L2'] = model
         self.scalers_tab['L2'] = scaler_tab
+        
+        return {
+            "backend": "xgb" if use_xgb else "mlp",
+            "best_val_loss": float(hist["best_val_loss"]) if not use_xgb else None
+        }
     
     def _train_l3(self, df, eng, idx_tr, idx_va, y_tr, y_va, epochs):
         """Train L3 dual-head model"""
@@ -366,6 +395,11 @@ class IndependentModelTrainer:
         self.models['L3'] = model
         self.scalers_tab['L3'] = scaler_tab
         self.temp_scalers['L3'] = temp_scaler
+        
+        return {
+            "best_val_loss": float(hist["best_val_loss"]),
+            "history": hist.get("history", {})
+        }
     
     def _infer_l1(self, model, Xseq):
         """Infer L1 logits and embeddings"""
