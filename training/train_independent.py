@@ -147,8 +147,9 @@ class IndependentModelTrainer:
         # Log parameters
         mlflow.log_params({
             "level": level,
-            "risk_pct": risk_profile['risk_pct'],
-            "risk_reward": risk_profile['risk_reward'],
+            "sl_pct": risk_profile['sl_pct'],
+            "rr": risk_profile['rr'],
+            "tp_pct": risk_profile['tp_pct'],
             "seq_len": self.seq_len,
             "epochs": epochs,
             "use_xgb": use_xgb
