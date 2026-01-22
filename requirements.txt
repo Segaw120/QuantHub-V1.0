@@ -14,4 +14,4 @@ matplotlib
 seaborn
 scipy
 python-multipart
-altair
+altair<5
