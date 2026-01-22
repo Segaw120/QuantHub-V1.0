@@ -132,7 +132,7 @@ def generate_candidates_and_labels(
                             sl_price=float(sl_px),
                             tp_price=float(tp_px),
                             end_time=end_t,
-                            label=int(label),
+                            y=int(label),
                             duration=float(dur_min),
                             realized_return=float(ret_val),
                             direction=direction))
