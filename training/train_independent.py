@@ -165,8 +165,8 @@ class IndependentModelTrainer:
         # Generate labels with level-specific risk profile
         logger.info(f"Generating labels for {level}...")
         labeler = TripleBarrierLabeler(
-            k_tp=risk_profile['risk_reward'],  # Use R:R as TP multiplier
-            k_sl=1.0,                           # SL always 1.0 ATR
+            k_tp=LABELING_DEFAULTS['k_tp'],    # Use fixed 3.0 for all levels (from train_raybot.py)
+            k_sl=LABELING_DEFAULTS['k_sl'],    # Use fixed 1.0 for all levels
             atr_window=LABELING_DEFAULTS['atr_window'],
             max_bars=LABELING_DEFAULTS['max_bars']
         )
