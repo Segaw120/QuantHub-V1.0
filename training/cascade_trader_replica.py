@@ -126,17 +126,33 @@ def generate_candidates_and_labels(
         end_t = bars.index[hit_i]
         ret_val = (hit_px-entry_px)/entry_px if direction=="long" else (entry_px-hit_px)/entry_px
         dur_min = (end_t - t).total_seconds()/60.0
-        records.append(dict(t=t,
+        records.append(dict(candidate_time=t,
                             entry_price=entry_px,
                             atr=float(atr_val),
                             sl_price=float(sl_px),
                             tp_price=float(tp_px),
                             end_time=end_t,
-                            y=int(label),
+                            label=int(label),
                             duration=float(dur_min),
                             realized_return=float(ret_val),
                             direction=direction))
     return pd.DataFrame(records)
+
+def prepare_events_for_fit(bars: pd.DataFrame, cands: pd.DataFrame) -> pd.DataFrame:
+    """Map candidate timestamps to integer positions for the trader's fit method."""
+    bar_idx_map = {t: i for i, t in enumerate(bars.index)}
+    cand_idx = []
+    for t in cands["candidate_time"]:
+        t0 = pd.Timestamp(t)
+        if t0 in bar_idx_map:
+            cand_idx.append(bar_idx_map[t0])
+        else:
+            locs = bars.index[bars.index <= t0]
+            cand_idx.append(int(bar_idx_map[locs[-1]] if len(locs) else 0))
+    return pd.DataFrame({
+        "t": np.array(cand_idx, dtype=int), 
+        "y": cands["label"].astype(int).values
+    })
 
 # --- Torch Datasets & Models ---
 

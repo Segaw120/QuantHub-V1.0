@@ -19,7 +19,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import logging
 import time
-from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels
+from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -281,7 +281,11 @@ elif page == "🎯 Training":
                                 
                                 st.info(f"Generated {len(cands)} events")
                                 
-                                # 2. Train Cascade
+                                # 2. Map to indices
+                                status_text.text("Mapping timestamps to indices...")
+                                events = prepare_events_for_fit(df, cands)
+                                
+                                # 3. Train Cascade
                                 status_text.text("Training L1 -> L2 -> L3 Cascade...")
                                 trainer = CascadeTrader(
                                     seq_len=TRAINING_DEFAULTS['seq_len'],
@@ -289,7 +293,7 @@ elif page == "🎯 Training":
                                 )
                                 trainer.fit(
                                     df=df,
-                                    events=cands,
+                                    events=events,
                                     epochs_l1=epochs_l1,
                                     epochs_l23=epochs_l23,
                                     l2_use_xgb=(l2_backend == "XGBoost")
