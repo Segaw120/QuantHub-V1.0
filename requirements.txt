@@ -6,7 +6,7 @@ scikit-learn
 yahooquery
 fastapi
 uvicorn[standard]
-streamlit
+streamlit>=1.37.0
 mlflow
 pydantic
 requests
