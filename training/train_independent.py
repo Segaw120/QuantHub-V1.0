@@ -119,6 +119,26 @@ class IndependentModelTrainer:
             epochs: Training epochs
             use_xgb: Use XGBoost (for L2 only)
         """
+        # Ensure we have a separate MLflow run for this level
+        # Check if we're already in a run (called from fit_all)
+        active_run = mlflow.active_run()
+        
+        if active_run is None:
+            # Not in a run, create one
+            with mlflow.start_run(run_name=f"{level}_training"):
+                self._fit_level_impl(df, level, epochs, use_xgb)
+        else:
+            # Already in a run (from fit_all), just execute
+            self._fit_level_impl(df, level, epochs, use_xgb)
+    
+    def _fit_level_impl(
+        self,
+        df: pd.DataFrame,
+        level: str,
+        epochs: int,
+        use_xgb: bool
+    ):
+        """Internal implementation of fit_level"""
         t0 = time.time()
         
         # Get risk profile
