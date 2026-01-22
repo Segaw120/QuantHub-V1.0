@@ -4,21 +4,22 @@ QuantHub V1.0: Central Management Dashboard
 Streamlit interface for training, simulation, deployment, and monitoring.
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
 import sys
 import os
-from datetime import datetime, timedelta
 from pathlib import Path
-import logging
-import time
-from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels
 
-# Add project root to sys.path to resolve 'app' module
+# Add project root to sys.path to resolve 'app' and 'training' modules
 project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import logging
+import time
+from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
