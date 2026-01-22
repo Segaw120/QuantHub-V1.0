@@ -391,15 +391,17 @@ elif page == "🚀 Deployment":
         # List models
         models_dir = Path("models")
         if models_dir.exists():
-            model_runs = list(models_dir.glob("run_*"))
+            # Support both cascade (run_*) and independent (independent_*) runs
+            model_runs = sorted(list(models_dir.glob("run_*")) + list(models_dir.glob("independent_*")), reverse=True)
             
             if model_runs:
                 st.markdown(f"**Found {len(model_runs)} model runs:**")
                 
-                for run_path in sorted(model_runs, reverse=True):
+                for run_path in model_runs:
                     with st.expander(run_path.name):
-                        files = list(run_path.glob("*.pt")) + list(run_path.glob("*.json"))
-                        st.write(f"Files: {[f.name for f in files]}")
+                        # Recursively find all model artifacts
+                        files = sorted(list(run_path.rglob("*.pt")) + list(run_path.rglob("*.json")))
+                        st.write(f"Files: {[f.relative_to(run_path).as_posix() for f in files]}")
                         
                         col1, col2 = st.columns(2)
                         with col1:
