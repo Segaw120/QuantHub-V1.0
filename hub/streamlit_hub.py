@@ -12,6 +12,8 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+import time
+from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels
 
 # Add project root to sys.path to resolve 'app' module
 project_root = str(Path(__file__).parent.parent)
@@ -235,7 +237,9 @@ elif page == "🎯 Training":
                 st.caption(f"**Use Case**: {ranges['use_case']}")
     
     with tab3:
-        st.subheader("Train Independent Models")
+        st.subheader("Train Models")
+        
+        training_mode = st.radio("Training Mode", ["Original Cascade (Replica)", "Independent Models (Experimental)"], index=0)
         
         if 'training_data' not in st.session_state:
             st.warning("⚠️ Please fetch data first (Data tab)")
@@ -257,44 +261,80 @@ elif page == "🎯 Training":
                 if st.button("🚀 Start Training", type="primary"):
                     with st.spinner(f"Training {len(selected_models)} model(s)..."):
                         try:
-                            from training.train_independent import IndependentModelTrainer
-                            
                             df = st.session_state['training_data']
-                            
-                            # Create trainer
-                            trainer = IndependentModelTrainer(
-                                experiment_name="QuantHub_Independent_Models",
-                                device="cpu"
-                            )
-                            
-                            # Train all selected models
-                            progress_bar = st.progress(0)
                             status_text = st.empty()
                             
-                            for i, level in enumerate(selected_models):
-                                status_text.text(f"Training {level}...")
-                                
-                                trainer.fit_level(
-                                    df=df,
-                                    level=level,
-                                    epochs=epochs_l1 if level == 'L1' else epochs_l23,
-                                    use_xgb=(level == 'L2' and l2_backend == "XGBoost")
+                            if training_mode == "Original Cascade (Replica)":
+                                # 1. Generate Candidates
+                                status_text.text("Generating candidates and labels (k_tp=2.0)...")
+                                cands = generate_candidates_and_labels(
+                                    df, 
+                                    k_tp=LABELING_DEFAULTS['k_tp'],
+                                    k_sl=LABELING_DEFAULTS['k_sl'],
+                                    max_bars=LABELING_DEFAULTS['max_bars']
                                 )
                                 
-                                progress_bar.progress((i + 1) / len(selected_models))
+                                if cands.empty:
+                                    st.error("❌ No candidates generated. Check data range.")
+                                    st.stop()
+                                
+                                st.info(f"Generated {len(cands)} events")
+                                
+                                # 2. Train Cascade
+                                status_text.text("Training L1 -> L2 -> L3 Cascade...")
+                                trainer = CascadeTrader(
+                                    seq_len=TRAINING_DEFAULTS['seq_len'],
+                                    device="cpu"
+                                )
+                                trainer.fit(
+                                    df=df,
+                                    events=cands,
+                                    epochs_l1=epochs_l1,
+                                    epochs_l23=epochs_l23,
+                                    l2_use_xgb=(l2_backend == "XGBoost")
+                                )
+                                
+                                # 3. Run Breadth Backtest
+                                status_text.text("Running Breadth Backtesting...")
+                                preds = trainer.predict_batch(df, cands.index.values)
+                                breadth_results = run_breadth_levels(preds, cands, df, LEVEL_GATING)
+                                
+                                # Store results in session
+                                st.session_state['breadth_results'] = breadth_results
+                                st.session_state['trained_models'] = trainer
+                                
+                                # Save results
+                                output_dir = Path("models") / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                trainer.save(str(output_dir))
+                                st.session_state['model_path'] = str(output_dir)
+                                
+                            else:
+                                # Independent Training Flow
+                                from training.train_independent import IndependentModelTrainer
+                                trainer = IndependentModelTrainer(
+                                    experiment_name="QuantHub_Independent_Models",
+                                    device="cpu"
+                                )
+                                progress_bar = st.progress(0)
+                                for i, level in enumerate(selected_models):
+                                    status_text.text(f"Training {level}...")
+                                    trainer.fit_level(
+                                        df=df,
+                                        level=level,
+                                        epochs=epochs_l1 if level == 'L1' else epochs_l23,
+                                        use_xgb=(level == 'L2' and l2_backend == "XGBoost")
+                                    )
+                                    progress_bar.progress((i + 1) / len(selected_models))
+                                
+                                # Save models
+                                output_dir = Path("models") / f"independent_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                trainer.save_models(str(output_dir))
+                                
+                                st.session_state['trained_models'] = trainer
+                                st.session_state['model_path'] = str(output_dir)
                             
                             status_text.text("Training complete!")
-                            st.success(f"✅ Successfully trained {len(selected_models)} model(s)!")
-                            
-                            # Save models
-                            output_dir = Path("models") / f"independent_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                            trainer.save_models(str(output_dir))
-                            
-                            st.success(f"✅ Models saved to {output_dir}")
-                            
-                            # Store in session
-                            st.session_state['trained_models'] = trainer
-                            st.session_state['model_path'] = str(output_dir)
+                            st.success(f"✅ Successfully trained models!")
                             st.session_state['trained_levels'] = selected_models
                         
                         except Exception as e:
@@ -304,20 +344,42 @@ elif page == "🎯 Training":
     with tab4:
         st.subheader("Training Results")
         
+        # 1. Breadth Results (Original Replica)
+        if 'breadth_results' in st.session_state:
+            res = st.session_state['breadth_results']
+            st.markdown("### 🏆 Breadth Backtest Summary")
+            st.markdown("This table replicates the results from the original training system's summary.")
+            if res['summary']:
+                summary_df = pd.DataFrame(res['summary'])
+                st.table(summary_df)
+                
+                # CSV Download
+                csv = summary_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "📥 Download Summary CSV",
+                    csv,
+                    "cascade_breadth_results.csv",
+                    "text/csv",
+                    key='download-csv'
+                )
+            else:
+                st.info("No trades were generated for any level.")
+            
+            st.markdown("---")
+
+        # 2. Per-Level Metadata (Independent Models or Replica Metadata)
         if 'trained_models' in st.session_state:
             trainer = st.session_state['trained_models']
-            trained_levels = st.session_state.get('trained_levels', [])
             
-            st.markdown(f"**Trained Models**: {', '.join(trained_levels)}")
-            st.markdown(f"**Model Path**: `{st.session_state.get('model_path', 'N/A')}`")
-            
-            # Show per-level results
-            for level in trained_levels:
-                with st.expander(f"{level} Results"):
-                    if level in trainer.metadata:
-                        st.json(trainer.metadata[level])
-                    else:
-                        st.info(f"No metadata available for {level}")
+            # Use metadata if available (Independent Trainer has it)
+            if hasattr(trainer, 'metadata'):
+                metadata = trainer.metadata
+                st.markdown("### 📋 Training Metadata")
+                
+                for level, info in metadata.items():
+                    if level == 'fit_time_sec' or level == 'l2_backend': continue
+                    with st.expander(f"{level} Training Details"):
+                        st.json(info)
         else:
             st.info("No training results yet. Train models first.")
 
