@@ -140,14 +140,15 @@ def generate_candidates_and_labels(
 
 def prepare_events_for_fit(bars: pd.DataFrame, cands: pd.DataFrame) -> pd.DataFrame:
     """Map candidate timestamps to integer positions for the trader's fit method."""
-    bar_idx_map = {t: i for i, t in enumerate(bars.index)}
+    bars_idx = pd.to_datetime(bars.index)
+    bar_idx_map = {t: i for i, t in enumerate(bars_idx)}
     cand_idx = []
     for t in cands["candidate_time"]:
         t0 = pd.Timestamp(t)
         if t0 in bar_idx_map:
             cand_idx.append(bar_idx_map[t0])
         else:
-            locs = bars.index[bars.index <= t0]
+            locs = bars_idx[bars_idx <= t0]
             cand_idx.append(int(bar_idx_map[locs[-1]] if len(locs) else 0))
     return pd.DataFrame({
         "t": np.array(cand_idx, dtype=int), 
@@ -588,7 +589,9 @@ class CascadeTrader:
 def simulate_limits(df: pd.DataFrame, bars: pd.DataFrame, label_col: str = "pred_label", sl: float = 0.02, tp: float = 0.04, max_holding: int = 60) -> pd.DataFrame:
     if df is None or df.empty or bars is None or bars.empty: return pd.DataFrame()
     trades = []
-    bars = bars.copy(); bars.index = pd.to_datetime(bars.index)
+    bars = bars.copy()
+    bars.index = pd.to_datetime(bars.index)
+    bars_idx = bars.index
     for _, row in df.iterrows():
         lbl = row.get(label_col, 0)
         if lbl == 0 or pd.isna(lbl): continue
