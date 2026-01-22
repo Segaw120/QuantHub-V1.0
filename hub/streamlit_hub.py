@@ -94,30 +94,36 @@ if page == "🏠 Home":
 # TRAINING PAGE
 # ============================================================================
 elif page == "🎯 Training":
-    st.header("Model Training")
+    st.header("Multi-Model Training System")
+    
+    # Import config
+    try:
+        from training.config import TRAINING_DEFAULTS, RISK_PROFILES, LABELING_DEFAULTS
+    except ImportError:
+        st.error("Training config not found. Please ensure training/config.py exists.")
+        st.stop()
     
     st.sidebar.subheader("Training Configuration")
     
     # Data settings
     st.sidebar.markdown("### Data")
     symbol = st.sidebar.text_input("Symbol", value="GC=F")
-    start_date = st.sidebar.date_input("Start Date", value=datetime.today() - timedelta(days=365))
-    end_date = st.sidebar.date_input("End Date", value=datetime.today())
+    lookback_days = st.sidebar.number_input("Lookback Days", min_value=90, max_value=730, value=365)
     
-    # Model settings
-    st.sidebar.markdown("### Model")
-    seq_len = st.sidebar.number_input("Sequence Length", min_value=32, max_value=128, value=64, step=8)
+    # Model selection
+    st.sidebar.markdown("### Models to Train")
+    train_l1 = st.sidebar.checkbox("Train L1 (Aggressive)", value=True)
+    train_l2 = st.sidebar.checkbox("Train L2 (Balanced)", value=True)
+    train_l3 = st.sidebar.checkbox("Train L3 (Conservative)", value=True)
+    
+    # Training epochs
+    st.sidebar.markdown("### Training Epochs")
     epochs_l1 = st.sidebar.number_input("L1 Epochs", min_value=5, max_value=50, value=10)
     epochs_l23 = st.sidebar.number_input("L2/L3 Epochs", min_value=5, max_value=50, value=10)
     l2_backend = st.sidebar.selectbox("L2 Backend", ["XGBoost", "MLP"])
     
-    # Labeling settings
-    st.sidebar.markdown("### Labeling")
-    k_tp = st.sidebar.number_input("TP Multiplier (ATR)", min_value=1.0, max_value=5.0, value=2.0, step=0.5)
-    k_sl = st.sidebar.number_input("SL Multiplier (ATR)", min_value=0.5, max_value=3.0, value=1.0, step=0.5)
-    
     # Main area
-    tab1, tab2, tab3 = st.tabs(["📊 Data", "🎯 Train", "📈 Results"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Data", "⚙️ Config", "🎯 Train", "📈 Results"])
     
     with tab1:
         st.subheader("Data Preview")
@@ -127,7 +133,7 @@ elif page == "🎯 Training":
                 try:
                     from app.services import fetcher
                     
-                    df = fetcher.fetch_safe_daily_dataframe(symbol, lookback_days=365)
+                    df = fetcher.fetch_safe_daily_dataframe(symbol, lookback_days=lookback_days)
                     
                     if not df.empty:
                         st.success(f"✅ Fetched {len(df)} bars")
@@ -147,75 +153,160 @@ elif page == "🎯 Training":
                     st.error(f"Error: {e}")
     
     with tab2:
-        st.subheader("Train Cascade Model")
+        st.subheader("Training Configuration")
+        
+        # Hardcoded parameters (read-only)
+        st.markdown("### 📋 Training Parameters (from train_raybot.py)")
+        st.info("These parameters are hardcoded for reproducibility and match the original training system.")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Model Architecture**")
+            st.json({
+                "seq_len": TRAINING_DEFAULTS['seq_len'],
+                "feat_windows": TRAINING_DEFAULTS['feat_windows'],
+                "num_boost": TRAINING_DEFAULTS['num_boost'],
+                "test_size": TRAINING_DEFAULTS['test_size']
+            })
+        
+        with col2:
+            st.markdown("**Labeling Parameters**")
+            st.json({
+                "lookback": LABELING_DEFAULTS['lookback'],
+                "atr_window": LABELING_DEFAULTS['atr_window'],
+                "max_bars": LABELING_DEFAULTS['max_bars'],
+                "direction": LABELING_DEFAULTS['direction']
+            })
+        
+        st.markdown("---")
+        
+        # Risk profiles (user-adjustable)
+        st.markdown("### 🎚️ Risk Profiles (Adjustable)")
+        st.markdown("Based on backtesting results from CSV. Adjust to customize each model's risk tolerance.")
+        
+        # Store adjusted profiles in session state
+        if 'risk_profiles' not in st.session_state:
+            st.session_state['risk_profiles'] = RISK_PROFILES.copy()
+        
+        for level in ['L1', 'L2', 'L3']:
+            with st.expander(f"**{level}** - {RISK_PROFILES[level]['description']}", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    risk_pct = st.slider(
+                        f"{level} Risk %",
+                        min_value=0.5,
+                        max_value=5.0,
+                        value=RISK_PROFILES[level]['risk_pct'] * 100,
+                        step=0.25,
+                        key=f"{level}_risk"
+                    ) / 100
+                    st.session_state['risk_profiles'][level]['risk_pct'] = risk_pct
+                
+                with col2:
+                    risk_reward = st.slider(
+                        f"{level} R:R Ratio",
+                        min_value=1.0,
+                        max_value=5.0,
+                        value=RISK_PROFILES[level]['risk_reward'],
+                        step=0.25,
+                        key=f"{level}_rr"
+                    )
+                    st.session_state['risk_profiles'][level]['risk_reward'] = risk_reward
+                
+                with col3:
+                    st.metric("Historical Win Rate", f"{RISK_PROFILES[level]['win_rate_target']:.2%}")
+                
+                st.caption(f"**Use Case**: {RISK_PROFILES[level]['use_case']}")
+    
+    with tab3:
+        st.subheader("Train Independent Models")
         
         if 'training_data' not in st.session_state:
             st.warning("⚠️ Please fetch data first (Data tab)")
         else:
-            if st.button("🚀 Start Training", type="primary"):
-                with st.spinner("Training cascade model..."):
-                    try:
-                        from app.core import TripleBarrierLabeler
-                        from training.train_cascade import CascadeTrainer
+            # Show selected models
+            selected_models = []
+            if train_l1:
+                selected_models.append('L1')
+            if train_l2:
+                selected_models.append('L2')
+            if train_l3:
+                selected_models.append('L3')
+            
+            if not selected_models:
+                st.warning("⚠️ Please select at least one model to train")
+            else:
+                st.info(f"**Selected Models**: {', '.join(selected_models)}")
+                
+                if st.button("🚀 Start Training", type="primary"):
+                    with st.spinner(f"Training {len(selected_models)} model(s)..."):
+                        try:
+                            from training.train_independent import IndependentModelTrainer
+                            
+                            df = st.session_state['training_data']
+                            
+                            # Create trainer
+                            trainer = IndependentModelTrainer(
+                                experiment_name="QuantHub_Independent_Models",
+                                device="cpu"
+                            )
+                            
+                            # Train all selected models
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            for i, level in enumerate(selected_models):
+                                status_text.text(f"Training {level}...")
+                                
+                                trainer.fit_level(
+                                    df=df,
+                                    level=level,
+                                    epochs=epochs_l1 if level == 'L1' else epochs_l23,
+                                    use_xgb=(level == 'L2' and l2_backend == "XGBoost")
+                                )
+                                
+                                progress_bar.progress((i + 1) / len(selected_models))
+                            
+                            status_text.text("Training complete!")
+                            st.success(f"✅ Successfully trained {len(selected_models)} model(s)!")
+                            
+                            # Save models
+                            output_dir = Path("models") / f"independent_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                            trainer.save_models(str(output_dir))
+                            
+                            st.success(f"✅ Models saved to {output_dir}")
+                            
+                            # Store in session
+                            st.session_state['trained_models'] = trainer
+                            st.session_state['model_path'] = str(output_dir)
+                            st.session_state['trained_levels'] = selected_models
                         
-                        df = st.session_state['training_data']
-                        
-                        # Generate labels
-                        st.info("Generating labels...")
-                        labeler = TripleBarrierLabeler(k_tp=k_tp, k_sl=k_sl)
-                        events = labeler.generate_labels(df)
-                        
-                        st.success(f"✅ Generated {len(events)} labeled events (Win Rate: {events['label'].mean():.2%})")
-                        
-                        # Prepare events DataFrame
-                        events_df = pd.DataFrame({
-                            't': events.index,
-                            'y': events['label'].values
-                        })
-                        
-                        # Train
-                        st.info("Training cascade...")
-                        trainer = CascadeTrainer(
-                            seq_len=seq_len,
-                            device="cpu",
-                            experiment_name="QuantHub_Training"
-                        )
-                        
-                        trainer.fit(
-                            df=df,
-                            events=events_df,
-                            l2_use_xgb=(l2_backend == "XGBoost"),
-                            epochs_l1=epochs_l1,
-                            epochs_l23=epochs_l23
-                        )
-                        
-                        st.success("✅ Training complete!")
-                        
-                        # Save models
-                        output_dir = Path("models") / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                        trainer.save_models(str(output_dir))
-                        
-                        st.success(f"✅ Models saved to {output_dir}")
-                        
-                        # Store in session
-                        st.session_state['trained_model'] = trainer
-                        st.session_state['model_path'] = str(output_dir)
-                    
-                    except Exception as e:
-                        st.error(f"Training error: {e}")
-                        logger.exception(e)
+                        except Exception as e:
+                            st.error(f"Training error: {e}")
+                            logger.exception(e)
     
-    with tab3:
+    with tab4:
         st.subheader("Training Results")
         
-        if 'trained_model' in st.session_state:
-            trainer = st.session_state['trained_model']
+        if 'trained_models' in st.session_state:
+            trainer = st.session_state['trained_models']
+            trained_levels = st.session_state.get('trained_levels', [])
             
-            st.json(trainer.metadata)
-            
+            st.markdown(f"**Trained Models**: {', '.join(trained_levels)}")
             st.markdown(f"**Model Path**: `{st.session_state.get('model_path', 'N/A')}`")
+            
+            # Show per-level results
+            for level in trained_levels:
+                with st.expander(f"{level} Results"):
+                    if level in trainer.metadata:
+                        st.json(trainer.metadata[level])
+                    else:
+                        st.info(f"No metadata available for {level}")
         else:
-            st.info("No training results yet. Train a model first.")
+            st.info("No training results yet. Train models first.")
+
 
 # ============================================================================
 # SIMULATION PAGE
