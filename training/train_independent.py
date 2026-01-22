@@ -157,16 +157,17 @@ class IndependentModelTrainer:
         # Initialize metadata for this level
         self.metadata[level] = {
             "level": level,
-            "risk_pct": risk_profile['risk_pct'],
-            "risk_reward": risk_profile['risk_reward'],
+            "sl_pct": risk_profile['sl_pct'],      # Stop loss percentage
+            "rr": risk_profile['rr'],              # Risk:reward ratio
+            "tp_pct": risk_profile['tp_pct'],      # Take profit percentage
             "status": "training"
         }
         
-        # Generate labels with level-specific risk profile
+        # Generate labels - SAME for all levels (k_tp=2.0, k_sl=1.0)
         logger.info(f"Generating labels for {level}...")
         labeler = TripleBarrierLabeler(
-            k_tp=LABELING_DEFAULTS['k_tp'],    # Use fixed 3.0 for all levels (from train_raybot.py)
-            k_sl=LABELING_DEFAULTS['k_sl'],    # Use fixed 1.0 for all levels
+            k_tp=LABELING_DEFAULTS['k_tp'],    # Fixed 2.0 for ALL levels
+            k_sl=LABELING_DEFAULTS['k_sl'],    # Fixed 1.0 for ALL levels
             atr_window=LABELING_DEFAULTS['atr_window'],
             max_bars=LABELING_DEFAULTS['max_bars']
         )
