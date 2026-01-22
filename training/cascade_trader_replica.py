@@ -126,7 +126,7 @@ def generate_candidates_and_labels(
         end_t = bars.index[hit_i]
         ret_val = (hit_px-entry_px)/entry_px if direction=="long" else (entry_px-hit_px)/entry_px
         dur_min = (end_t - t).total_seconds()/60.0
-        records.append(dict(candidate_time=t,
+        records.append(dict(t=t,
                             entry_price=entry_px,
                             atr=float(atr_val),
                             sl_price=float(sl_px),
