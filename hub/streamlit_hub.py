@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 import logging
 import time
 from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_generalized_sweep, run_walk_forward_validation, run_monte_carlo_sim
+from app.utils.drift import DriftDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -652,15 +653,61 @@ elif page == "📈 Monitoring":
     with tab2:
         st.subheader("Distribution Drift Detection")
         
-        st.markdown("""
-        Monitor feature distributions for drift:
-        - **KS Test**: Kolmogorov-Smirnov statistic
-        - **KL Divergence**: Distribution shift
-        - **Anomalies**: Z-score outliers
-        """)
-        
-        if st.button("Check Drift"):
-            st.info("Drift detection will be implemented here")
+        # 1. Select Model for Reference
+        models_dir = Path("models")
+        if models_dir.exists():
+            model_runs = sorted(list(models_dir.glob("run_*")) + list(models_dir.glob("independent_*")), reverse=True)
+            if model_runs:
+                selected_ref = st.selectbox("Select Model for Baseline Reference", [r.name for r in model_runs])
+                ref_path = models_dir / selected_ref / "feature_snapshot.csv"
+                
+                if st.button("🔍 Check Distribution Drift"):
+                    if not ref_path.exists():
+                        st.error(f"Snapshot not found for {selected_ref}. Monitor works best with newly trained models.")
+                    elif 'training_data' not in st.session_state:
+                        st.error("Please fetch current market data first (Training > Data tab).")
+                    else:
+                        with st.spinner("Analyzing statistical drift..."):
+                            # Load Reference
+                            ref_df = pd.read_csv(ref_path, index_col=0)
+                            
+                            # Compute Current Features
+                            from app.core.features import compute_engineered_features
+                            curr_df = compute_engineered_features(st.session_state['training_data'])
+                            curr_df = curr_df.fillna(0.0)
+                            
+                            # Align columns
+                            common_cols = [c for c in ref_df.columns if c in curr_df.columns]
+                            ref_df = ref_df[common_cols]
+                            curr_df = curr_df[common_cols]
+                            
+                            # Run Detection
+                            detector = DriftDetector(ref_df)
+                            report = detector.get_drift_report(curr_df)
+                            
+                            # Display Results
+                            ratio = report['overall_drift_ratio']
+                            rec = report['recommendation']
+                            
+                            col1, col2 = st.columns(2)
+                            col1.metric("Drift Ratio", f"{ratio:.1%}")
+                            if rec == "RETRAIN":
+                                col2.error(f"Recommendation: {rec}")
+                            else:
+                                col2.success(f"Recommendation: {rec}")
+                            
+                            # Details
+                            if report['combined_drifted_features']:
+                                with st.expander("Drifted Features Detail"):
+                                    st.write(report['combined_drifted_features'])
+                                    
+                            # Chart (Drift Ratio over time if we had historical logs, but for now just current status)
+                            st.progress(ratio)
+                            st.caption(f"Based on KS-Test p-value < 0.05 across {len(common_cols)} features.")
+            else:
+                st.info("No models found in registry.")
+        else:
+            st.warning("Models directory not found.")
     
     with tab3:
         st.subheader("Alert Configuration")

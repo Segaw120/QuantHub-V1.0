@@ -358,6 +358,7 @@ class CascadeTrader:
         feat_seq_df = pd.concat([df[seq_cols].astype(float), eng[[c for c in micro_cols if c in eng.columns]]], axis=1, sort=False).fillna(0.0)
         feat_tab_df = eng.fillna(0.0)
         self.tab_feature_names = list(feat_tab_df.columns)
+        self.train_features = feat_tab_df # Keep reference for drift detection
         idx = events['t'].astype(int).values
         y = events['y'].astype(int).values
         tr_idx, va_idx = train_test_split(np.arange(len(idx)), test_size=test_size, random_state=42, stratify=y)
@@ -482,6 +483,10 @@ class CascadeTrader:
         })
         with open(path / "metadata.json", 'w') as f:
             json.dump(self.metadata, f)
+            
+        # Save feature snapshot for drift detection
+        if hasattr(self, "train_features") and self.train_features is not None:
+            self.train_features.to_csv(path / "feature_snapshot.csv", index=True)
             
         logger.info(f"CascadeTrader saved to {output_dir}")
 
