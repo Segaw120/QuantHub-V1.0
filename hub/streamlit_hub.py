@@ -22,6 +22,7 @@ import time
 from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_generalized_sweep, run_walk_forward_validation, run_monte_carlo_sim, compute_engineered_features
 from app.utils.drift import DriftDetector
 from app.services.supabase_service import SupabaseService
+from app.services.hf_service import HFDeploymentService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +48,11 @@ page = st.sidebar.radio(
 )
 
 # Supabase Cloud sync is fully automated
+st.sidebar.markdown("---")
+st.sidebar.header("🤗 Hugging Face (Production)")
+hf_token = st.sidebar.text_input("HF Write Token", value=os.environ.get("HF_TOKEN", ""), type="password")
+if hf_token:
+    os.environ["HF_TOKEN"] = hf_token
 
 # ============================================================================
 # HOME PAGE
@@ -591,13 +597,38 @@ elif page == "🚀 Deployment":
                         files = sorted(list(run_path.rglob("*.pt")) + list(run_path.rglob("*.json")))
                         st.write(f"Files: {[f.relative_to(run_path).as_posix() for f in files]}")
                         
-                        col1, col2 = st.columns(2)
+                        col1, col2, col3 = st.columns(3)
                         with col1:
                             if st.button("Promote to Staging", key=f"stage_{run_path.name}"):
                                 st.success("Promoted to staging")
                         with col2:
-                            if st.button("Promote to Production", key=f"prod_{run_path.name}"):
-                                st.success("Promoted to production")
+                            if st.button("Promote to Production (Local)", key=f"prod_l_{run_path.name}"):
+                                import shutil
+                                dest_dir = Path(project_root).parent / "models"
+                                dest_dir.mkdir(exist_ok=True)
+                                
+                                # Copy relevant files
+                                files_to_copy = list(run_path.glob("*.pt")) + \
+                                               list(run_path.glob("*.json")) + \
+                                               list(run_path.glob("*.joblib")) + \
+                                               list(run_path.glob("*.csv"))
+                                               
+                                for f in files_to_copy:
+                                    shutil.copy2(f, dest_dir / f.name)
+                                    
+                                st.success(f"Successfully promoted to local production: {dest_dir}")
+                        with col3:
+                            if st.button("🚀 Push to production (HF)", key=f"prod_h_{run_path.name}"):
+                                if not hf_token:
+                                    st.error("Please provide HF Write Token in the sidebar")
+                                else:
+                                    with st.spinner("Pushing models to Hugging Face..."):
+                                        hf_svc = HFDeploymentService()
+                                        success = hf_svc.upload_model_bundle(run_path)
+                                        if success:
+                                            st.success("Successfully pushed to HF Space!")
+                                        else:
+                                            st.error("HF Push failed. Check logs.")
             else:
                 st.info("No trained models found. Train a model first.")
         else:

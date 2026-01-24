@@ -17,3 +17,4 @@ python-multipart
 altair<5
 joblib
 supabase
+huggingface_hub
