@@ -14,7 +14,7 @@ class HFDeploymentService:
     Handles automated deployment to Hugging Face Spaces repo.
     """
     
-    def __init__(self, repo_id: str = "segaab120/raymond-model-v1-0"):
+    def __init__(self, repo_id: str = "segaab120/raymond-model-V1.0"):
         self.repo_id = repo_id
         self.api = HfApi() if HfApi else None
         self.token = os.environ.get("HF_TOKEN")
