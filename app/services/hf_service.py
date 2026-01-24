@@ -33,32 +33,56 @@ class HFDeploymentService:
             return False
 
         try:
-            # 1. Collect artifacts
-            # We want to upload everything in the run_xxx directory to the root models/ folder on HF
-            # to replace the current active models.
-            files_to_upload = list(model_dir.glob("*.pt")) + \
-                              list(model_dir.glob("*.json")) + \
-                              list(model_dir.glob("*.joblib")) + \
-                              list(model_dir.glob("*.csv"))
-            
-            if not files_to_upload:
-                logger.warning(f"No artifacts found in {model_dir}")
-                return False
+            # Production filename mapping
+            mapping = {
+                "l1.pt": "l1_scope.pt",
+                "l3.pt": "l3_shoot.pt",
+                "scaler_seq.joblib": "scaler_seq.joblib",
+                "scaler_tab.joblib": "scaler_tab.joblib",
+                "metadata.json": "metadata.json"
+            }
 
-            logger.info(f"Starting HF upload for {len(files_to_upload)} files to {self.repo_id}...")
-            
-            for file_path in files_to_upload:
-                remote_path = f"models/{file_path.name}"
-                self.api.upload_file(
-                    path_or_fileobj=str(file_path),
-                    path_in_repo=remote_path,
-                    repo_id=self.repo_id,
-                    repo_type="space",
-                    token=token
-                )
-                logger.info(f"Uploaded {file_path.name} -> {remote_path}")
+            # Handle L2 mapping based on backend
+            l2_meta_path = model_dir / "l2_meta.json"
+            l2_backend = "xgb"
+            if l2_meta_path.exists():
+                import json
+                with open(l2_meta_path, 'r') as f:
+                    meta = json.load(f)
+                    l2_backend = meta.get("backend", "xgb")
 
-            return True
+            if l2_backend == "xgb":
+                mapping["l2_xgb.json"] = "l2_xgboost.json"
+                # The existing API expects an l2_aim.pt even for XGBoost
+                # to tell it that it's an xgboost type.
+                l2_aim_pt = model_dir / "l2_aim.pt"
+                import torch
+                torch.save({
+                    'model_type': 'xgboost',
+                    'model_path': 'models/l2_xgboost.json',
+                    'feature_names': [] # Will be populated by metadata.json in future
+                }, l2_aim_pt)
+                mapping["l2_aim.pt"] = "l2_aim.pt"
+            else:
+                mapping["l2_mlp.pt"] = "l2_aim.pt"
+
+            logger.info(f"Starting HF production-aligned upload to {self.repo_id}...")
+            
+            uploaded_count = 0
+            for local_name, remote_name in mapping.items():
+                local_path = model_dir / local_name
+                if local_path.exists():
+                    self.api.upload_file(
+                        path_or_fileobj=str(local_path),
+                        path_in_repo=f"models/{remote_name}",
+                        repo_id=self.repo_id,
+                        repo_type="space",
+                        token=token
+                    )
+                    logger.info(f"Uploaded {local_name} -> models/{remote_name}")
+                    uploaded_count += 1
+
+            return uploaded_count > 0
         except Exception as e:
             logger.error(f"HF Upload failed: {e}")
             return False

@@ -604,19 +604,41 @@ elif page == "🚀 Deployment":
                         with col2:
                             if st.button("Promote to Production (Local)", key=f"prod_l_{run_path.name}"):
                                 import shutil
+                                import torch
                                 dest_dir = Path(project_root).parent / "models"
                                 dest_dir.mkdir(exist_ok=True)
                                 
-                                # Copy relevant files
-                                files_to_copy = list(run_path.glob("*.pt")) + \
-                                               list(run_path.glob("*.json")) + \
-                                               list(run_path.glob("*.joblib")) + \
-                                               list(run_path.glob("*.csv"))
-                                               
-                                for f in files_to_copy:
-                                    shutil.copy2(f, dest_dir / f.name)
+                                # Filename mapping for API compatibility
+                                mapping = {
+                                    "l1.pt": "l1_scope.pt",
+                                    "l3.pt": "l3_shoot.pt",
+                                    "scaler_seq.joblib": "scaler_seq.joblib",
+                                    "scaler_tab.joblib": "scaler_tab.joblib",
+                                    "metadata.json": "metadata.json"
+                                }
+                                
+                                # Handle L2 logic
+                                l2_meta_path = run_path / "l2_meta.json"
+                                l2_backend = "xgb"
+                                if l2_meta_path.exists():
+                                    with open(l2_meta_path, 'r') as f:
+                                        meta = json.load(f)
+                                        l2_backend = meta.get("backend", "xgb")
+
+                                if l2_backend == "xgb":
+                                    mapping["l2_xgb.json"] = "l2_xgboost.json"
+                                    # Fix for production API dummy file
+                                    torch.save({'model_type': 'xgboost', 'model_path': 'models/l2_xgboost.json'}, run_path / "l2_aim.pt")
+                                    mapping["l2_aim.pt"] = "l2_aim.pt"
+                                else:
+                                    mapping["l2_mlp.pt"] = "l2_aim.pt"
+
+                                for src_name, dst_name in mapping.items():
+                                    src_f = run_path / src_name
+                                    if src_f.exists():
+                                        shutil.copy2(src_f, dest_dir / dst_name)
                                     
-                                st.success(f"Successfully promoted to local production: {dest_dir}")
+                                st.success(f"Successfully promoted and aligned for local production: {dest_dir}")
                         with col3:
                             if st.button("🚀 Push to production (HF)", key=f"prod_h_{run_path.name}"):
                                 if not hf_token:
