@@ -509,7 +509,8 @@ class CascadeTrader:
         if (path / "l1.pt").exists():
             l1_data = torch.load(path / "l1.pt", map_location='cpu')
             instance.l1 = Level1ScopeCNN(in_features=l1_data['in_features'])
-            instance.l1.load_state_dict(l1_data['state_dict'])
+            l1_sd = l1_data.get('state_dict', l1_data.get('model_state_dict'))
+            instance.l1.load_state_dict(l1_sd)
             instance.l1_temp.load_state_dict(l1_data['temp_state'])
             instance.l1.to(instance.device)
             
@@ -525,7 +526,9 @@ class CascadeTrader:
                 l2_in_dim = instance.metadata.get("l2_in_dim")
                 if l2_in_dim:
                     instance.l2_model = MLP(l2_in_dim, [128, 64], out_dim=1)
-                    instance.l2_model.load_state_dict(torch.load(path / "l2_mlp.pt", map_location='cpu'))
+                    l2_data = torch.load(path / "l2_mlp.pt", map_location='cpu')
+                    l2_sd = l2_data.get('state_dict', l2_data.get('model_state_dict')) if isinstance(l2_data, dict) else l2_data
+                    instance.l2_model.load_state_dict(l2_sd)
                     instance.l2_model.to(instance.device)
                 
         # Load L3
@@ -534,7 +537,8 @@ class CascadeTrader:
             if l3_in_dim:
                 l3_data = torch.load(path / "l3.pt", map_location='cpu')
                 instance.l3 = Level3ShootMLP(l3_in_dim, hidden=(128, 64))
-                instance.l3.load_state_dict(l3_data['state_dict'])
+                l3_sd = l3_data.get('state_dict', l3_data.get('model_state_dict'))
+                instance.l3.load_state_dict(l3_sd)
                 instance.l3_temp.load_state_dict(l3_data['temp_state'])
                 instance.l3.to(instance.device)
             

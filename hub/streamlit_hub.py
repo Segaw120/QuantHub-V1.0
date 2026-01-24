@@ -634,8 +634,22 @@ elif page == "🚀 Deployment":
 
                                 if l2_backend == "xgb":
                                     mapping["l2_xgb.json"] = "l2_xgboost.json"
+                                    
+                                    # Load metadata for feature names
+                                    feat_names = []
+                                    if (run_path / "metadata.json").exists():
+                                        try:
+                                            with open(run_path / "metadata.json", 'r') as f:
+                                                m = json.load(f)
+                                                feat_names = m.get("tab_feature_names", [])
+                                        except: pass
+                                        
                                     # Fix for production API dummy file
-                                    torch.save({'model_type': 'xgboost', 'model_path': 'models/l2_xgboost.json'}, run_path / "l2_aim.pt")
+                                    torch.save({
+                                        'model_type': 'xgboost', 
+                                        'model_path': 'models/l2_xgboost.json',
+                                        'feature_names': feat_names
+                                    }, run_path / "l2_aim.pt")
                                     mapping["l2_aim.pt"] = "l2_aim.pt"
                                 else:
                                     mapping["l2_mlp.pt"] = "l2_aim.pt"

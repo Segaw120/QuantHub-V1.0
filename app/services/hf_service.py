@@ -53,14 +53,25 @@ class HFDeploymentService:
 
             if l2_backend == "xgb":
                 mapping["l2_xgb.json"] = "l2_xgboost.json"
+                
+                # Load metadata for feature names
+                feature_names = []
+                if (model_dir / "metadata.json").exists():
+                    import json
+                    try:
+                        with open(model_dir / "metadata.json", 'r') as f:
+                            meta = json.load(f)
+                            feature_names = meta.get("tab_feature_names", [])
+                    except: pass
+                
                 # The existing API expects an l2_aim.pt even for XGBoost
-                # to tell it that it's an xgboost type.
+                # to tell it that it's an xgboost type and provide features.
                 l2_aim_pt = model_dir / "l2_aim.pt"
                 import torch
                 torch.save({
                     'model_type': 'xgboost',
                     'model_path': 'models/l2_xgboost.json',
-                    'feature_names': [] # Will be populated by metadata.json in future
+                    'feature_names': feature_names
                 }, l2_aim_pt)
                 mapping["l2_aim.pt"] = "l2_aim.pt"
             else:
