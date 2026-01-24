@@ -385,13 +385,14 @@ class CascadeTrader:
             if xgb is None: raise RuntimeError("xgboost not installed")
             clf = xgb.XGBClassifier(n_estimators=num_boost, max_depth=5, learning_rate=0.05, use_label_encoder=False, eval_metric="logloss")
             clf.fit(X_l2_tr, y_tr, eval_set=[(X_l2_va, y_va)], verbose=False)
-            return ("xgb", clf)
+            hist = clf.evals_result() if hasattr(clf, "evals_result") else None
+            return ("xgb", clf, hist)
         def do_l2_mlp():
             in_dim = X_l2_tr.shape[1]
             m = MLP(in_dim, [128,64], out_dim=1, dropout=0.1)
             ds2_tr = TabDataset(X_l2_tr, y_tr); ds2_va = TabDataset(X_l2_va, y_va)
             m, hist = train_torch_classifier(m, ds2_tr, ds2_va, lr=1e-3, epochs=epochs_l23, patience=3, pos_weight=1.0, device=str(self.device))
-            return ("mlp", m)
+            return ("mlp", m, hist)
         def do_l3():
             in_dim = X_l2_tr.shape[1]
             m3 = Level3ShootMLP(in_dim, hidden=(128,64), dropout=0.1, use_regression_head=True)
@@ -407,15 +408,33 @@ class CascadeTrader:
                 label = futures[fut]
                 try: results[label] = fut.result()
                 except Exception as e: results[label] = None
-        if results.get("l2") is not None: self.l2_backend, self.l2_model = results["l2"]
-        if results.get("l3") is not None: self.l3 = results["l3"][1][0] if isinstance(results["l3"][1], tuple) else results["l3"][1]
+        if results.get("l2") is not None: 
+            self.l2_backend, self.l2_model = results["l2"]
+        if results.get("l3") is not None: 
+            self.l3 = results["l3"][1][0] if isinstance(results["l3"][1], tuple) else results["l3"][1]
+            
         try: self.l1_temp.fit(l1_logits.reshape(-1,1), y)
         except: pass
         try:
             l3_val_logits = self._l3_infer_logits(X_l2_va)
             self.l3_temp.fit(l3_val_logits.reshape(-1,1), y_va)
         except: pass
-        self.metadata = {"l1_hist": l1_hist, "fit_time_sec": round(time.time() - t0, 2), "l2_backend": self.l2_backend}
+        
+        # Capture comprehensive metadata
+        self.metadata = {
+            "L1": {"history": l1_hist, "status": "completed"},
+            "L2": {
+                "backend": self.l2_backend,
+                "history": results.get("l2")[2] if results.get("l2") and len(results.get("l2")) > 2 else None,
+                "status": "completed" if self.l2_model else "failed"
+            },
+            "L3": {
+                "history": results.get("l3")[1][1] if results.get("l3") and isinstance(results.get("l3")[1], tuple) else None,
+                "status": "completed" if self.l3 else "failed"
+            },
+            "fit_time_sec": round(time.time() - t0, 2),
+            "l2_backend": self.l2_backend
+        }
         self._fitted = True
         return self
 
