@@ -7,6 +7,10 @@ Streamlit interface for training, simulation, deployment, and monitoring.
 import sys
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 # Add project root to sys.path to resolve 'app' and 'training' modules
 project_root = str(Path(__file__).parent.parent)
