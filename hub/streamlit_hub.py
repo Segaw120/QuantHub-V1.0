@@ -138,8 +138,8 @@ elif page == "🎯 Training":
     
     # Training epochs
     st.sidebar.markdown("### Training Epochs")
-    epochs_l1 = st.sidebar.number_input("L1 Epochs", min_value=5, max_value=50, value=10)
-    epochs_l23 = st.sidebar.number_input("L2/L3 Epochs", min_value=5, max_value=50, value=10)
+    epochs_l1 = st.sidebar.number_input("L1 Epochs", min_value=5, max_value=2000, value=10)
+    epochs_l23 = st.sidebar.number_input("L2/L3 Epochs", min_value=5, max_value=2000, value=10)
     l2_backend = st.sidebar.selectbox("L2 Backend", ["XGBoost", "MLP"])
     
     # Main area
