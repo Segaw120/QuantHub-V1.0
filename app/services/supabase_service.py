@@ -15,15 +15,18 @@ class SupabaseService:
     """
     
     def __init__(self):
-        self.url = os.environ.get("SUPABASE_URL")
-        self.key = os.environ.get("SUPABASE_KEY")
+        self.url = "https://jubcotqsbvguwzklngzd.supabase.co"
+        self.key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp1YmNvdHFzYnZndXd6a2xuZ3pkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTU0MjA3MCwiZXhwIjoyMDc1MTE4MDcwfQ.1HV-o9JFa_nCZGXcoap2OgOCKjRSlyFSRvKmYk70eDk"
         self.client: Optional[Client] = None
         
-        if self.url and self.key and create_client:
-            self.client = create_client(self.url, self.key)
-            logger.info("Supabase client initialized")
+        if create_client:
+            try:
+                self.client = create_client(self.url, self.key)
+                logger.info("Supabase client initialized with hardcoded credentials")
+            except Exception as e:
+                logger.error(f"Failed to initialize Supabase client: {e}")
         else:
-            logger.warning("Supabase credentials missing or library not installed")
+            logger.warning("Supabase library not installed")
 
     def upload_snapshot(self, local_path: str, remote_name: str, bucket: str = "snapshots") -> bool:
         """

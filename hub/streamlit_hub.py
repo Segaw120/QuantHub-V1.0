@@ -46,14 +46,7 @@ page = st.sidebar.radio(
     ["🏠 Home", "🎯 Training", "🧪 Simulation", "🚀 Deployment", "📈 Monitoring"]
 )
 
-# --- Supabase Settings ---
-st.sidebar.header("☁️ Cloud Sync (Supabase)")
-sb_url = st.sidebar.text_input("Supabase URL", value=os.environ.get("SUPABASE_URL", ""))
-sb_key = st.sidebar.text_input("Supabase Key", value=os.environ.get("SUPABASE_KEY", ""), type="password")
-if sb_url and sb_key:
-    os.environ["SUPABASE_URL"] = sb_url
-    os.environ["SUPABASE_KEY"] = sb_key
-    st.sidebar.success("Supabase Connected")
+# Supabase Cloud sync is fully automated
 
 # ============================================================================
 # HOME PAGE
@@ -326,7 +319,7 @@ elif page == "🎯 Training":
                                 st.session_state['model_path'] = str(output_dir)
                                 
                                 # Cloud Sync Snapshot
-                                if sb_url and sb_key:
+                                if True: # Fully automated cloud sync
                                     status_text.text("Syncing Snapshot to Supabase...")
                                     sb = SupabaseService()
                                     local_snap = output_dir / "feature_snapshot.csv"
