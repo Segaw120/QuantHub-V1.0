@@ -53,8 +53,11 @@ page = st.sidebar.radio(
 
 # Supabase Cloud sync is fully automated
 st.sidebar.markdown("---")
-st.sidebar.header("🤗 Hugging Face (Production)")
-hf_token = st.sidebar.text_input("HF Write Token", value=os.environ.get("HF_TOKEN", ""), type="password")
+# 🤗 Hugging Face (Production)
+# Try loading from Streamlit secrets first, then environment
+secret_hf_token = st.secrets.get("HF_TOKEN") if "HF_TOKEN" in st.secrets else os.environ.get("HF_TOKEN", "")
+
+hf_token = st.sidebar.text_input("HF Write Token", value=secret_hf_token, type="password")
 if hf_token:
     os.environ["HF_TOKEN"] = hf_token
 
