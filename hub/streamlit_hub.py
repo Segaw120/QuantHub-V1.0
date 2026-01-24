@@ -301,7 +301,7 @@ elif page == "🎯 Training":
                                 
                                 # 3. Run Breadth Backtest
                                 status_text.text("Running Breadth Backtesting...")
-                                preds = trainer.predict_batch(df, cands.index.values)
+                                preds = trainer.predict_batch(df, events['t'].values)
                                 breadth_results = run_breadth_levels(preds, cands, df, LEVEL_GATING)
                                 
                                 # Store results in session

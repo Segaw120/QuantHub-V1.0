@@ -639,8 +639,8 @@ def run_breadth_levels(preds: pd.DataFrame, cands: pd.DataFrame, bars: pd.DataFr
     from training.config import RISK_PROFILES
     out = {"detailed": {}, "summary": []}
     df = cands.copy().reset_index(drop=True)
-    preds_indexed = preds.set_index('t')
-    df['signal'] = (preds_indexed.reindex(df.index)['p3'].fillna(0.0) * 10).values
+    # Ensure aligned by position since they are generated for the same candidates
+    df['signal'] = (preds['p3'].values * 10)
     for name, conf in level_configs.items():
         buy_min = conf.get('buy_min', 5.5)
         buy_max = conf.get('buy_max', 9.9)
