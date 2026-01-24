@@ -409,7 +409,7 @@ class CascadeTrader:
                 try: results[label] = fut.result()
                 except Exception as e: results[label] = None
         if results.get("l2") is not None: 
-            self.l2_backend, self.l2_model = results["l2"]
+            self.l2_backend, self.l2_model, _ = results["l2"]
         if results.get("l3") is not None: 
             self.l3 = results["l3"][1][0] if isinstance(results["l3"][1], tuple) else results["l3"][1]
             
