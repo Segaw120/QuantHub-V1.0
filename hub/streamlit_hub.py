@@ -21,6 +21,7 @@ import logging
 import time
 from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_generalized_sweep, run_walk_forward_validation, run_monte_carlo_sim, compute_engineered_features
 from app.utils.drift import DriftDetector
+from app.services.supabase_service import SupabaseService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +45,15 @@ page = st.sidebar.radio(
     "Select Module",
     ["🏠 Home", "🎯 Training", "🧪 Simulation", "🚀 Deployment", "📈 Monitoring"]
 )
+
+# --- Supabase Settings ---
+st.sidebar.header("☁️ Cloud Sync (Supabase)")
+sb_url = st.sidebar.text_input("Supabase URL", value=os.environ.get("SUPABASE_URL", ""))
+sb_key = st.sidebar.text_input("Supabase Key", value=os.environ.get("SUPABASE_KEY", ""), type="password")
+if sb_url and sb_key:
+    os.environ["SUPABASE_URL"] = sb_url
+    os.environ["SUPABASE_KEY"] = sb_key
+    st.sidebar.success("Supabase Connected")
 
 # ============================================================================
 # HOME PAGE
@@ -310,9 +320,18 @@ elif page == "🎯 Training":
                                 st.session_state['trained_models'] = trainer
                                 
                                 # Save results
-                                output_dir = Path("models") / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                                output_dir = Path("models") / run_id
                                 trainer.save(str(output_dir))
                                 st.session_state['model_path'] = str(output_dir)
+                                
+                                # Cloud Sync Snapshot
+                                if sb_url and sb_key:
+                                    status_text.text("Syncing Snapshot to Supabase...")
+                                    sb = SupabaseService()
+                                    local_snap = output_dir / "feature_snapshot.csv"
+                                    if local_snap.exists():
+                                        sb.upload_snapshot(str(local_snap), f"{run_id}/feature_snapshot.csv")
                                 
                             else:
                                 # Independent Training Flow

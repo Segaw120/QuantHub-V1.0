@@ -16,3 +16,4 @@ scipy
 python-multipart
 altair<5
 joblib
+supabase
