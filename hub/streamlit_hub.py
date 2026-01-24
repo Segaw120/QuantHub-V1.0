@@ -19,7 +19,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import logging
 import time
-from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit
+from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_parameter_sweep, run_walk_forward_validation, run_monte_carlo_sim
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -393,62 +393,140 @@ elif page == "🎯 Training":
 # SIMULATION PAGE
 # ============================================================================
 elif page == "🧪 Simulation":
-    st.header("Backtesting & Stress Testing")
+    st.header("Strategic Proving Ground")
     
-    st.sidebar.subheader("Simulation Settings")
+    sim_pillar = st.sidebar.selectbox(
+        "Simulation Pillar", 
+        ["1. Parameter Sensitivity", "2. Walk-Forward Validation", "3. Stress Test (Friction)", "4. Monte Carlo (Risk)"]
+    )
     
-    sim_type = st.sidebar.selectbox("Simulation Type", ["Walk-Forward", "Stress Test", "API Backtest"])
-    
-    if sim_type == "Walk-Forward":
-        st.subheader("Walk-Forward Validation")
+    if 'training_data' not in st.session_state:
+        st.warning("⚠️ Please fetch data first (Training > Data tab)")
+        st.stop()
         
-        train_window = st.sidebar.number_input("Train Window (days)", value=150)
-        test_window = st.sidebar.number_input("Test Window (days)", value=30)
-        step_days = st.sidebar.number_input("Step (days)", value=7)
+    df = st.session_state['training_data']
+
+    if sim_pillar == "1. Parameter Sensitivity":
+        st.subheader("🎯 Parameter Sensitivity (Robustness Heat Map)")
+        st.markdown("Test SL and RR ranges to find 'Robust Clouds' and avoid 'Overfit Spikes'.")
         
-        st.markdown("""
-        Walk-forward validation prevents look-ahead bias by using rolling windows.
+        col1, col2 = st.columns(2)
+        with col1:
+            sl_min, sl_max = st.slider("SL Range (%)", 0.5, 5.0, (1.0, 4.0), step=0.5)
+        with col2:
+            rr_min, rr_max = st.slider("RR Range", 1.0, 5.0, (1.5, 3.5), step=0.5)
+            
+        if st.button("🔥 Run Sensitivity Sweep"):
+            if 'trained_models' not in st.session_state or not isinstance(st.session_state['trained_models'], CascadeTrader):
+                st.error("Please train an 'Original Cascade' model first to generate signals.")
+            else:
+                with st.spinner("Sweeping parameter space..."):
+                    trainer = st.session_state['trained_models']
+                    cands = generate_candidates_and_labels(df)
+                    ev = prepare_events_for_fit(df, cands)
+                    preds = trainer.predict_batch(df, ev['t'].values)
+                    
+                    sl_vals = np.arange(sl_min, sl_max + 0.1, 0.5) / 100.0
+                    rr_vals = np.arange(rr_min, rr_max + 0.1, 0.5)
+                    
+                    sweep_df = run_parameter_sweep(preds, cands, df, sl_vals.tolist(), rr_vals.tolist())
+                    
+                    import altair as alt
+                    chart = alt.Chart(sweep_df).mark_rect().encode(
+                        x=alt.X('sl:O', title='Stop Loss (%)'),
+                        y=alt.Y('rr:O', title='Risk:Reward'),
+                        color=alt.Color('total_pnl:Q', scale=alt.Scale(scheme='viridis'), title='Total PnL'),
+                        tooltip=['sl', 'rr', 'win_rate', 'total_pnl', 'trades']
+                    ).properties(width=600, height=400)
+                    
+                    st.altair_chart(chart, use_container_width=True)
+                    st.dataframe(sweep_df.sort_values("total_pnl", ascending=False).head(10))
+
+    elif sim_pillar == "2. Walk-Forward Validation":
+        st.subheader("⌛ Walk-Forward Optimization (Rolling Validation)")
+        st.markdown("Verifies if the strategy can survive through multiple market cycles by retraining.")
         
-        Each split:
-        - Train on past `train_window` days
-        - Test on next `test_window` days
-        - Step forward by `step_days`
-        """)
+        col1, col2, col3 = st.columns(3)
+        train_win = col1.number_input("Train Window (days)", 60, 365, 150)
+        test_win = col2.number_input("Test Window (days)", 15, 90, 30)
+        step_days = col3.number_input("Step (days)", 7, 30, 7)
         
-        if st.button("Run Walk-Forward"):
-            st.info("Walk-forward simulation will be implemented here")
-    
-    elif sim_type == "Stress Test":
-        st.subheader("Market Regime Stress Testing")
+        if st.button("🚀 Run Walk-Forward"):
+            with st.spinner("This may take 1-2 minutes depending on history..."):
+                wf_results = run_walk_forward_validation(df, train_win, test_win, step_days)
+                if not wf_results:
+                    st.warning("No trades generated in any fold. Try adjusting windows.")
+                else:
+                    wf_df = pd.DataFrame(wf_results)
+                    st.success(f"Successfully completed {len(wf_df)} rolling folds.")
+                    
+                    # Metrics
+                    avg_wr = wf_df['win_rate'].mean()
+                    total_pnl = wf_df['total_pnl'].sum()
+                    st.metric("Aggregate WF Win Rate", f"{avg_wr:.2%}")
+                    st.metric("Total WF Profitability", f"{total_pnl:.2f}")
+                    
+                    st.subheader("Fold Breakdown")
+                    st.dataframe(wf_df)
+
+    elif sim_pillar == "3. Stress Test (Friction)":
+        st.subheader("🌋 Stress Test (Realistic Friction)")
+        st.markdown("How does your strategy perform with slippage and execution delays?")
         
-        st.markdown("""
-        Test strategy performance across different market regimes:
-        - 🐂 Bull markets
-        - 🐻 Bear markets
-        - 📈 High volatility
-        - 💥 Crash scenarios
-        - 😴 Low volatility
-        """)
+        slippage_bps = st.slider("Flat Slippage (bps per trade)", 0, 50, 5)
+        delay_bars = st.slider("Execution Delay (bars)", 0, 5, 0)
         
-        if st.button("Run Stress Test"):
-            st.info("Stress testing will be implemented here")
-    
-    else:  # API Backtest
-        st.subheader("API-Based Backtest")
+        if st.button("💥 Run Stress Test"):
+            if 'trained_models' not in st.session_state or not isinstance(st.session_state['trained_models'], CascadeTrader):
+                st.error("Please train an 'Original Cascade' model first.")
+            else:
+                trainer = st.session_state['trained_models']
+                # Get current breadth results for L1 as baseline
+                cands = generate_candidates_and_labels(df)
+                ev = prepare_events_for_fit(df, cands)
+                preds = trainer.predict_batch(df, ev['t'].values)
+                
+                # Apply stress
+                df_te = cands.copy().reset_index(drop=True)
+                df_te['signal'] = (preds['p3'].values * 10)
+                sel = df_te[(df_te['signal'] >= 5.5) & (df_te['signal'] <= 9.9)].copy()
+                sel['pred_label'] = 1
+                
+                trades_clean = simulate_limits(sel, df, slippage=0, latency_bars=0)
+                trades_stressed = simulate_limits(sel, df, slippage=slippage_bps/10000.0, latency_bars=delay_bars)
+                
+                s_clean = summarize_trades(trades_clean).iloc[0]
+                s_stress = summarize_trades(trades_stressed).iloc[0]
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Clean PnL", f"{s_clean['total_pnl']:.2f}")
+                col2.metric("Stressed PnL", f"{s_stress['total_pnl']:.2f}", 
+                            delta=round(float(s_stress['total_pnl'] - s_clean['total_pnl']), 2))
+                
+                st.markdown(f"**Survivability Ratio**: {s_stress['total_pnl']/s_clean['total_pnl']:.2%}" if s_clean['total_pnl'] > 0 else "N/A")
+
+    else:  # Monte Carlo
+        st.subheader("🎲 Monte Carlo (Sequence Risk)")
+        st.markdown("Finds your true 'Worst Case Scenario' by scrambling trade orders.")
         
-        st.markdown("""
-        Test the deployed API by simulating real-time calls.
-        
-        This validates:
-        - Serialization/deserialization
-        - API latency
-        - Production environment parity
-        """)
-        
-        api_url = st.text_input("API URL", value="http://localhost:7860")
-        
-        if st.button("Run API Backtest"):
-            st.info("API backtesting will be implemented here")
+        if 'breadth_results' not in st.session_state:
+            st.warning("Please run full Training first to collect trades for Monte Carlo.")
+        else:
+            # We'll use L1 trades as example
+            trades = st.session_state['breadth_results']['detailed'].get('L1')
+            if trades is None or trades.empty:
+                st.error("No trades found for L1 in previous results.")
+            else:
+                if st.button("🎲 Reshuffle 1000 Sequences"):
+                    mc = run_monte_carlo_sim(trades)
+                    
+                    st.write(f"**95% Confidence Max Drawdown**: {mc['p5_dd']:.2%}")
+                    st.write(f"**Median Expected Drawdown**: {mc['median_dd']:.2%}")
+                    
+                    # Chart paths
+                    paths_df = pd.DataFrame(mc['paths']).T.head(100) # Only plot 100 for performance
+                    st.line_chart(paths_df)
+                    st.caption("Showing 100 sample equity paths from simulation.")
 
 # ============================================================================
 # DEPLOYMENT PAGE

@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 import math
 import logging
+from datetime import datetime, timedelta
 import json
 import joblib
 import numpy as np
@@ -606,35 +607,74 @@ class CascadeTrader:
 
 # --- Backtesting Helpers ---
 
-def simulate_limits(df: pd.DataFrame, bars: pd.DataFrame, label_col: str = "pred_label", sl: float = 0.02, tp: float = 0.04, max_holding: int = 60) -> pd.DataFrame:
+def simulate_limits(df: pd.DataFrame, bars: pd.DataFrame, label_col: str = "pred_label", sl: float = 0.02, tp: float = 0.04, max_holding: int = 60, slippage: float = 0.0, latency_bars: int = 0) -> pd.DataFrame:
+    """
+    Simulate trades with SL/TP logic.
+    - slippage: flat deduction from entry/exit prices (e.g. 0.0005 for 5bps)
+    - latency_bars: number of bars to wait after signal before entry
+    """
     if df is None or df.empty or bars is None or bars.empty: return pd.DataFrame()
     trades = []
     bars = bars.copy()
     bars.index = pd.to_datetime(bars.index)
-    bars_idx = bars.index
+    bars_idx_list = list(bars.index)
+    bars_dict = {t: i for i, t in enumerate(bars_idx_list)}
+    
     for _, row in df.iterrows():
         lbl = row.get(label_col, 0)
         if lbl == 0 or pd.isna(lbl): continue
-        entry_t = pd.to_datetime(row.get("candidate_time", row.name))
-        if entry_t not in bars.index: continue
-        entry_px = float(bars.loc[entry_t, "close"])
+        signal_t = pd.to_datetime(row.get("candidate_time", row.name))
+        if signal_t not in bars_dict: continue
+        
+        # Apply Latency
+        signal_idx = bars_dict[signal_t]
+        entry_idx = signal_idx + latency_bars
+        if entry_idx >= len(bars_idx_list): continue
+        
+        entry_t = bars_idx_list[entry_idx]
+        entry_px_raw = float(bars.loc[entry_t, "close"])
+        
         direction = 1 if lbl > 0 else -1
+        # Apply slippage to entry
+        entry_px = entry_px_raw * (1 + slippage) if direction > 0 else entry_px_raw * (1 - slippage)
+        
         sl_px = entry_px * (1 - sl) if direction > 0 else entry_px * (1 + sl)
         tp_px = entry_px * (1 + tp) if direction > 0 else entry_px * (1 - tp)
+        
         exit_t, exit_px, pnl = None, None, None
-        segment = bars.loc[entry_t:].head(max_holding)
+        segment = bars.iloc[entry_idx:].head(max_holding)
         if segment.empty: continue
+        
         for t, b in segment.iterrows():
             lo, hi = float(b["low"]), float(b["high"])
             if direction > 0:
-                if lo <= sl_px: exit_t, exit_px, pnl, hit = t, sl_px, -sl, True; break
-                if hi >= tp_px: exit_t, exit_px, pnl, hit = t, tp_px, tp, True; break
+                if lo <= sl_px: 
+                    exit_t, exit_px_raw, hit = t, sl_px, True
+                    exit_px = exit_px_raw * (1 - slippage)
+                    pnl = (exit_px - entry_px) / entry_px
+                    break
+                if hi >= tp_px: 
+                    exit_t, exit_px_raw, hit = t, tp_px, True
+                    exit_px = exit_px_raw * (1 - slippage)
+                    pnl = (exit_px - entry_px) / entry_px
+                    break
             else:
-                if hi >= sl_px: exit_t, exit_px, pnl, hit = t, sl_px, -sl, True; break
-                if lo <= tp_px: exit_t, exit_px, pnl, hit = t, tp_px, tp, True; break
+                if hi >= sl_px: 
+                    exit_t, exit_px_raw, hit = t, sl_px, True
+                    exit_px = exit_px_raw * (1 + slippage)
+                    pnl = (entry_px - exit_px) / entry_px
+                    break
+                if lo <= tp_px: 
+                    exit_t, exit_px_raw, hit = t, tp_px, True
+                    exit_px = exit_px_raw * (1 + slippage)
+                    pnl = (entry_px - exit_px) / entry_px
+                    break
         else:
             last_bar = segment.iloc[-1]
-            exit_t, exit_px, pnl = last_bar.name, float(last_bar["close"]), (float(last_bar["close"]) - entry_px)/entry_px * direction
+            exit_t, exit_px_raw = last_bar.name, float(last_bar["close"])
+            exit_px = exit_px_raw * (1 - slippage) if direction > 0 else exit_px_raw * (1 + slippage)
+            pnl = (exit_px - entry_px)/entry_px if direction > 0 else (entry_px - exit_px)/entry_px
+            
         trades.append(dict(entry_time=entry_t, entry_price=entry_px, direction=direction, exit_time=exit_t, exit_price=exit_px, pnl=float(pnl)))
     return pd.DataFrame(trades)
 
@@ -644,7 +684,11 @@ def summarize_trades(trades: pd.DataFrame) -> pd.DataFrame:
     win_rate = float((trades["pnl"] > 0).mean())
     avg_pnl = float(trades["pnl"].mean())
     total_pnl = float(trades["pnl"].sum())
-    max_dd = float(trades["pnl"].cumsum().min())
+    
+    # Simple peak-to-trough max drawdown on this specific sequence
+    equity = (1.0 + trades["pnl"]).cumprod()
+    max_dd = float((equity / equity.cummax() - 1.0).min())
+    
     return pd.DataFrame([{
         "total_trades": total_trades,
         "win_rate": win_rate,
@@ -652,6 +696,141 @@ def summarize_trades(trades: pd.DataFrame) -> pd.DataFrame:
         "total_pnl": total_pnl,
         "max_drawdown": max_dd
     }])
+
+def run_monte_carlo_sim(trades: pd.DataFrame, iterations: int = 1000) -> Dict[str, Any]:
+    """
+    Bootstrap trade sequences to find risk distribution.
+    Returns:
+    - paths: List of equity curves [iterations, num_trades]
+    - dd_dist: List of max drawdowns [iterations]
+    """
+    if trades is None or trades.empty: return {"paths": [], "dd_dist": []}
+    
+    pnl_array = trades["pnl"].values
+    num_trades = len(pnl_array)
+    paths = []
+    dd_dist = []
+    
+    for _ in range(iterations):
+        # Shuffle with replacement (Bootstrapping)
+        shuffled = np.random.choice(pnl_array, size=num_trades, replace=True)
+        equity = np.cumprod(1.0 + shuffled)
+        peak = np.maximum.accumulate(equity)
+        drawdowns = (equity - peak) / peak
+        
+        paths.append(equity.tolist())
+        dd_dist.append(float(np.min(drawdowns)))
+        
+    return {
+        "paths": paths,
+        "dd_dist": dd_dist,
+        "mean_pnl": float(np.mean(pnl_array) * num_trades),
+        "median_dd": float(np.median(dd_dist)),
+        "p5_dd": float(np.percentile(dd_dist, 5)) # 95% confidence worst case
+    }
+
+def run_parameter_sweep(preds: pd.DataFrame, cands: pd.DataFrame, bars: pd.DataFrame, sl_range: List[float], rr_range: List[float]) -> pd.DataFrame:
+    """
+    Run a grid search over SL and RR to find robust performance clusters.
+    """
+    results = []
+    df = cands.copy().reset_index(drop=True)
+    df['signal'] = (preds['p3'].values * 10)
+    
+    # We use a broad L1 gating as the base for the sweep
+    base_sel = df[(df['signal'] >= 5.5) & (df['signal'] <= 9.9)].copy()
+    base_sel['pred_label'] = 1
+    
+    for sl in sl_range:
+        for rr in rr_range:
+            tp = sl * rr
+            trades = simulate_limits(base_sel, bars, sl=sl, tp=tp)
+            if not trades.empty:
+                s = summarize_trades(trades).iloc[0]
+                results.append({
+                    "sl": sl,
+                    "rr": rr,
+                    "win_rate": s['win_rate'],
+                    "total_pnl": s['total_pnl'],
+                    "avg_pnl": s['avg_pnl'],
+                    "trades": s['total_trades']
+                })
+            else:
+                results.append({"sl": sl, "rr": rr, "win_rate": 0, "total_pnl": 0, "avg_pnl": 0, "trades": 0})
+                
+    return pd.DataFrame(results)
+
+def run_walk_forward_validation(
+    df: pd.DataFrame, 
+    train_days: int = 150, 
+    test_days: int = 30, 
+    step_days: int = 7,
+    seq_len: int = 64,
+    epochs: int = 5
+) -> List[Dict[str, Any]]:
+    """
+    Perform rolling walk-forward validation.
+    """
+    results = []
+    df = ensure_unique_index(df)
+    start_t = df.index.min()
+    end_t = df.index.max()
+    
+    current_train_start = start_t
+    while True:
+        current_train_end = current_train_start + timedelta(days=train_days)
+        current_test_end = current_train_end + timedelta(days=test_days)
+        
+        if current_test_end > end_t:
+             break
+             
+        # Slice data
+        train_df = df.loc[current_train_start:current_train_end]
+        test_df = df.loc[current_train_end:current_test_end]
+        
+        if len(train_df) < current_train_start.day + seq_len: 
+            current_train_start += timedelta(days=step_days)
+            continue
+
+        try:
+            # 1. Generate cands for both
+            cands_tr = generate_candidates_and_labels(train_df)
+            cands_te = generate_candidates_and_labels(test_df)
+            
+            if cands_tr.empty or cands_te.empty:
+                current_train_start += timedelta(days=step_days)
+                continue
+                
+            # 2. Map
+            ev_tr = prepare_events_for_fit(train_df, cands_tr)
+            ev_te = prepare_events_for_fit(test_df, cands_te)
+            
+            # 3. Fit
+            trader = CascadeTrader(seq_len=seq_len, device="cpu")
+            trader.fit(train_df, ev_tr, l2_use_xgb=True, epochs_l1=epochs, epochs_l23=epochs)
+            
+            # 4. Predict on Test
+            preds = trader.predict_batch(test_df, ev_te['t'].values)
+            
+            # 5. Local Breadth (L1 context)
+            df_te = cands_te.copy().reset_index(drop=True)
+            df_te['signal'] = (preds['p3'].values * 10)
+            sel = df_te[(df_te['signal'] >= 5.5) & (df_te['signal'] <= 9.9)].copy()
+            
+            if not sel.empty:
+                sel['pred_label'] = 1
+                trades = simulate_limits(sel, test_df)
+                s = summarize_trades(trades).iloc[0].to_dict()
+                s['fold_start'] = current_train_end
+                s['fold_end'] = current_test_end
+                results.append(s)
+                
+        except Exception as e:
+            logger.warning(f"Fold failed: {e}")
+            
+        current_train_start += timedelta(days=step_days)
+        
+    return results
 
 def run_breadth_levels(preds: pd.DataFrame, cands: pd.DataFrame, bars: pd.DataFrame, level_configs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """Apply exclusive level ranges to preds -> cands and simulate trades per level."""
