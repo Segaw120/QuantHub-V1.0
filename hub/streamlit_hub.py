@@ -19,7 +19,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import logging
 import time
-from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_parameter_sweep, run_walk_forward_validation, run_monte_carlo_sim
+from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_generalized_sweep, run_walk_forward_validation, run_monte_carlo_sim
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -408,13 +408,23 @@ elif page == "🧪 Simulation":
 
     if sim_pillar == "1. Parameter Sensitivity":
         st.subheader("🎯 Parameter Sensitivity (Robustness Heat Map)")
-        st.markdown("Test SL and RR ranges to find 'Robust Clouds' and avoid 'Overfit Spikes'.")
+        st.markdown("Test SL, RR, and Signal Thresholds to find 'Robust Clouds' and avoid 'Overfit Spikes'.")
+        
+        sweep_mode = st.radio("Sweep Mode", ["SL vs RR", "Threshold vs SL"])
         
         col1, col2 = st.columns(2)
-        with col1:
-            sl_min, sl_max = st.slider("SL Range (%)", 0.5, 5.0, (1.0, 4.0), step=0.5)
-        with col2:
-            rr_min, rr_max = st.slider("RR Range", 1.0, 5.0, (1.5, 3.5), step=0.5)
+        if sweep_mode == "SL vs RR":
+            with col1:
+                sl_min, sl_max = st.slider("SL Range (%)", 0.5, 5.0, (1.0, 4.0), step=0.5)
+            with col2:
+                rr_min, rr_max = st.slider("RR Range", 1.0, 5.0, (1.5, 3.5), step=0.5)
+            fixed_val = st.number_input("Fixed Signal Threshold", 0.0, 10.0, 5.5, step=0.1)
+        else:
+            with col1:
+                th_min, th_max = st.slider("Signal Threshold Range", 4.0, 8.0, (5.0, 7.0), step=0.5)
+            with col2:
+                sl_min, sl_max = st.slider("SL Range (%)", 0.5, 5.0, (1.0, 3.0), step=0.5)
+            fixed_val = 0.0 # Not used in this mode
             
         if st.button("🔥 Run Sensitivity Sweep"):
             if 'trained_models' not in st.session_state or not isinstance(st.session_state['trained_models'], CascadeTrader):
@@ -426,17 +436,23 @@ elif page == "🧪 Simulation":
                     ev = prepare_events_for_fit(df, cands)
                     preds = trainer.predict_batch(df, ev['t'].values)
                     
-                    sl_vals = np.arange(sl_min, sl_max + 0.1, 0.5) / 100.0
-                    rr_vals = np.arange(rr_min, rr_max + 0.1, 0.5)
+                    if sweep_mode == "SL vs RR":
+                        p1_vals = np.arange(sl_min, sl_max + 0.1, 0.5) / 100.0
+                        p2_vals = np.arange(rr_min, rr_max + 0.1, 0.5)
+                        x_title, y_title = "Stop Loss (%)", "Risk:Reward"
+                    else:
+                        p1_vals = np.arange(th_min, th_max + 0.1, 0.5)
+                        p2_vals = np.arange(sl_min, sl_max + 0.1, 0.5) / 100.0
+                        x_title, y_title = "Signal Threshold", "Stop Loss (%)"
                     
-                    sweep_df = run_parameter_sweep(preds, cands, df, sl_vals.tolist(), rr_vals.tolist())
+                    sweep_df = run_generalized_sweep(preds, cands, df, p1_vals.tolist(), p2_vals.tolist(), mode=sweep_mode, fixed_val=fixed_val)
                     
                     import altair as alt
                     chart = alt.Chart(sweep_df).mark_rect().encode(
-                        x=alt.X('sl:O', title='Stop Loss (%)'),
-                        y=alt.Y('rr:O', title='Risk:Reward'),
+                        x=alt.X('p1:O', title=x_title),
+                        y=alt.Y('p2:O', title=y_title),
                         color=alt.Color('total_pnl:Q', scale=alt.Scale(scheme='viridis'), title='Total PnL'),
-                        tooltip=['sl', 'rr', 'win_rate', 'total_pnl', 'trades']
+                        tooltip=['p1', 'p2', 'win_rate', 'total_pnl', 'trades']
                     ).properties(width=600, height=400)
                     
                     st.altair_chart(chart, use_container_width=True)

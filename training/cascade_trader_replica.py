@@ -729,34 +729,55 @@ def run_monte_carlo_sim(trades: pd.DataFrame, iterations: int = 1000) -> Dict[st
         "p5_dd": float(np.percentile(dd_dist, 5)) # 95% confidence worst case
     }
 
-def run_parameter_sweep(preds: pd.DataFrame, cands: pd.DataFrame, bars: pd.DataFrame, sl_range: List[float], rr_range: List[float]) -> pd.DataFrame:
+def run_generalized_sweep(
+    preds: pd.DataFrame, 
+    cands: pd.DataFrame, 
+    bars: pd.DataFrame, 
+    param1_range: List[float], 
+    param2_range: List[float],
+    mode: str = "SL vs RR",
+    fixed_val: float = 5.5
+) -> pd.DataFrame:
     """
-    Run a grid search over SL and RR to find robust performance clusters.
+    Generalized grid search for sensitivity analysis.
+    Modes:
+    - 'SL vs RR': Sweep Stop-Loss and Risk-Reward (fixed threshold)
+    - 'Threshold vs SL': Sweep Signal Threshold and Stop-Loss (fixed RR)
     """
     results = []
     df = cands.copy().reset_index(drop=True)
     df['signal'] = (preds['p3'].values * 10)
     
-    # We use a broad L1 gating as the base for the sweep
-    base_sel = df[(df['signal'] >= 5.5) & (df['signal'] <= 9.9)].copy()
-    base_sel['pred_label'] = 1
-    
-    for sl in sl_range:
-        for rr in rr_range:
-            tp = sl * rr
-            trades = simulate_limits(base_sel, bars, sl=sl, tp=tp)
-            if not trades.empty:
-                s = summarize_trades(trades).iloc[0]
-                results.append({
-                    "sl": sl,
-                    "rr": rr,
-                    "win_rate": s['win_rate'],
-                    "total_pnl": s['total_pnl'],
-                    "avg_pnl": s['avg_pnl'],
-                    "trades": s['total_trades']
-                })
+    for p1 in param1_range:
+        for p2 in param2_range:
+            if mode == "SL vs RR":
+                sl, rr = p1, p2
+                thresh = fixed_val
+            elif mode == "Threshold vs SL":
+                thresh, sl = p1, p2
+                from training.config import RISK_PROFILES
+                rr = RISK_PROFILES.get("L1", {}).get("rr", 2.0)
             else:
-                results.append({"sl": sl, "rr": rr, "win_rate": 0, "total_pnl": 0, "avg_pnl": 0, "trades": 0})
+                continue
+                
+            tp = sl * rr
+            sel = df[(df['signal'] >= thresh) & (df['signal'] <= 9.9)].copy()
+            if not sel.empty:
+                sel['pred_label'] = 1
+                trades = simulate_limits(sel, bars, sl=sl, tp=tp)
+                if not trades.empty:
+                    s = summarize_trades(trades).iloc[0]
+                    results.append({
+                        "p1": p1,
+                        "p2": p2,
+                        "win_rate": s['win_rate'],
+                        "total_pnl": s['total_pnl'],
+                        "trades": s['total_trades']
+                    })
+                else:
+                    results.append({"p1": p1, "p2": p2, "win_rate": 0, "total_pnl": 0, "trades": 0})
+            else:
+                results.append({"p1": p1, "p2": p2, "win_rate": 0, "total_pnl": 0, "trades": 0})
                 
     return pd.DataFrame(results)
 
