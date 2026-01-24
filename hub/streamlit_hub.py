@@ -21,6 +21,7 @@ import logging
 import time
 from training.cascade_trader_replica import CascadeTrader, generate_candidates_and_labels, run_breadth_levels, prepare_events_for_fit, run_generalized_sweep, run_walk_forward_validation, run_monte_carlo_sim
 from app.utils.drift import DriftDetector
+from app.core.features import compute_engineered_features
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -672,7 +673,6 @@ elif page == "📈 Monitoring":
                             ref_df = pd.read_csv(ref_path, index_col=0)
                             
                             # Compute Current Features
-                            from app.core.features import compute_engineered_features
                             curr_df = compute_engineered_features(st.session_state['training_data'])
                             curr_df = curr_df.fillna(0.0)
                             
