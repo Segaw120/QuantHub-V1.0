@@ -277,11 +277,11 @@ def _device(name: str) -> torch.device:
 def train_torch_classifier(model: nn.Module,
                            train_ds,
                            val_ds,
-                           lr: float = 1e-3,
-                           epochs: int = 10,
-                           patience: int = 3,
-                           pos_weight: float = 1.0,
-                           device: str = "auto"):
+                            lr: float = 1e-3,
+                            epochs: int = 10,
+                            patience: int = 50,
+                            pos_weight: float = 1.0,
+                            device: str = "auto"):
     dev = _device(device)
     model = model.to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -349,7 +349,7 @@ class CascadeTrader:
         self._fitted = False
         self.metadata = {}
 
-    def fit(self, df: pd.DataFrame, events: pd.DataFrame, l2_use_xgb: bool = True, epochs_l1: int = 10, epochs_l23: int = 10, test_size: float = 0.2, num_boost: int = 200):
+    def fit(self, df: pd.DataFrame, events: pd.DataFrame, l2_use_xgb: bool = True, epochs_l1: int = 10, epochs_l23: int = 10, test_size: float = 0.2, num_boost: int = 200, patience: int = 50):
         t0 = time.time()
         df = ensure_unique_index(df)
         eng = compute_engineered_features(df, windows=self.feat_windows)
@@ -376,7 +376,7 @@ class CascadeTrader:
         ds_l1_va = SequenceDataset(Xseq_va, y_va)
         in_features = Xseq_tr.shape[2]
         self.l1 = Level1ScopeCNN(in_features=in_features, channels=(32,64,128), kernel_sizes=(5,3,3), dilations=(1,2,4), dropout=0.1)
-        self.l1, l1_hist = train_torch_classifier(self.l1, ds_l1_tr, ds_l1_va, lr=1e-3, epochs=epochs_l1, patience=3, pos_weight=1.0, device=str(self.device))
+        self.l1, l1_hist = train_torch_classifier(self.l1, ds_l1_tr, ds_l1_va, lr=1e-3, epochs=epochs_l1, patience=patience, pos_weight=1.0, device=str(self.device))
         all_idx_seq = to_sequences(X_seq_all_scaled, idx, seq_len=self.seq_len)
         l1_logits, l1_emb = self._l1_infer_logits_emb(all_idx_seq)
         l1_emb_tr, l1_emb_va = l1_emb[tr_idx], l1_emb[va_idx]
@@ -393,13 +393,13 @@ class CascadeTrader:
             in_dim = X_l2_tr.shape[1]
             m = MLP(in_dim, [128,64], out_dim=1, dropout=0.1)
             ds2_tr = TabDataset(X_l2_tr, y_tr); ds2_va = TabDataset(X_l2_va, y_va)
-            m, hist = train_torch_classifier(m, ds2_tr, ds2_va, lr=1e-3, epochs=epochs_l23, patience=3, pos_weight=1.0, device=str(self.device))
+            m, hist = train_torch_classifier(m, ds_l2_tr, ds_l2_va, lr=1e-3, epochs=epochs_l23, patience=patience, pos_weight=1.0, device=str(self.device))
             return ("mlp", m, hist)
         def do_l3():
             in_dim = X_l2_tr.shape[1]
             m3 = Level3ShootMLP(in_dim, hidden=(128,64), dropout=0.1, use_regression_head=True)
             ds3_tr = TabDataset(X_l2_tr, y_tr); ds3_va = TabDataset(X_l2_va, y_va)
-            m3, hist3 = train_torch_classifier(m3, ds3_tr, ds3_va, lr=1e-3, epochs=epochs_l23, patience=3, pos_weight=1.0, device=str(self.device))
+            m3, hist3 = train_torch_classifier(m3, ds3_tr, ds3_va, lr=1e-3, epochs=epochs_l23, patience=patience, pos_weight=1.0, device=str(self.device))
             return ("l3", (m3, hist3))
         futures = {}
         with ThreadPoolExecutor(max_workers=2) as ex:

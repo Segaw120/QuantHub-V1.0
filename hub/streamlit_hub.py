@@ -140,6 +140,7 @@ elif page == "🎯 Training":
     st.sidebar.markdown("### Training Epochs")
     epochs_l1 = st.sidebar.number_input("L1 Epochs", min_value=5, max_value=2000, value=10)
     epochs_l23 = st.sidebar.number_input("L2/L3 Epochs", min_value=5, max_value=2000, value=10)
+    patience = st.sidebar.number_input("Patience (Early Stopping)", min_value=5, max_value=500, value=100, help="Number of epochs to wait for improvement before stopping.")
     l2_backend = st.sidebar.selectbox("L2 Backend", ["XGBoost", "MLP"])
     
     # Main area
@@ -313,7 +314,8 @@ elif page == "🎯 Training":
                                     events=events,
                                     epochs_l1=epochs_l1,
                                     epochs_l23=epochs_l23,
-                                    l2_use_xgb=(l2_backend == "XGBoost")
+                                    l2_use_xgb=(l2_backend == "XGBoost"),
+                                    patience=patience
                                 )
                                 
                                 # 3. Run Breadth Backtest
